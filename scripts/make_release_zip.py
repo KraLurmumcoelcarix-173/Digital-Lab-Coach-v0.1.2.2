@@ -27,7 +27,8 @@ INCLUDE_FILES = [
 ]
 EXCLUDE_DIR_NAMES = {"__pycache__", ".pytest_cache", ".git", ".venv",
                      "tests","screenshots"}
-EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
+EXCLUDE_SUFFIXES = {".pyc", ".pyo",
+                    ".db", ".db-journal", ".db-wal", ".db-shm"}
 
 
 def _version(root: Path) -> str:
@@ -39,6 +40,8 @@ def _version(root: Path) -> str:
 
 def _want(path: Path) -> bool:
     if any(part in EXCLUDE_DIR_NAMES for part in path.parts):
+        return False
+    if path.name.startswith(".env") and path.name != ".env.example":
         return False
     return path.suffix not in EXCLUDE_SUFFIXES
 
