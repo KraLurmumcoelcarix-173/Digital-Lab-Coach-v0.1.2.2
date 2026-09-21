@@ -37,6 +37,12 @@ def _connect() -> sqlite3.Connection:
     p.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(p))
     conn.executescript(_SCHEMA)
+    with conn:
+        conn.execute(
+            "INSERT INTO sqlite_sequence (name, seq) SELECT 'events', ? "
+            "WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence"
+            " WHERE name = 'events')",
+            (int(time.time() * 1000),))
     return conn
 
 

@@ -156,6 +156,74 @@ def test_relay_names_a_missing_server_key_and_spends_nothing(tele_env,
     assert pc.get("/v1/health").json()["today_calls"] == 0
 
 
+def _reinstall_batches():
+    def batch(rows, t0):
+        return {"install_id": "same-laptop", "events": [
+            {"client_row_id": i, "client_ts": t0 + i, "kind": k,
+             "props": {"n": i}} for i, k in rows]}
+    week1 = batch([(1, "upload"), (2, "tests_run_complete"),
+                   (3, "l3_hint_level")], 1000.0)
+    after = batch([(1, "upload"), (2, "l2_llm_complete"),
+                   (3, "l3_fix_accepted")], 2000.0)
+    return week1, after
+
+
+def test_events_survive_a_student_reinstall(tele_env, monkeypatch):
+    pc = _proxy_client(monkeypatch)
+    week1, after = _reinstall_batches()
+    assert pc.post("/v1/events", json=week1).json()["stored"] == 3
+    assert pc.post("/v1/events", json=after).json()["stored"] == 3
+    assert pc.get("/v1/health").json()["events"] == 6
+    assert pc.post("/v1/events", json=after).json()["stored"] == 0
+    assert pc.get("/v1/health").json()["events"] == 6
+
+
+def test_events_key_migrates_an_old_ledger(tele_env, monkeypatch):
+    old = sqlite3.connect(os.environ["DLC_PROXY_DB"])
+    with old:
+        old.executescript("""
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    install_id TEXT NOT NULL, client_row_id INTEGER NOT NULL,
+    session_id TEXT, kind TEXT NOT NULL, client_ts REAL, stored_at REAL,
+    received_at REAL NOT NULL, props TEXT NOT NULL,
+    UNIQUE(install_id, client_row_id));
+INSERT INTO events (install_id, client_row_id, kind, client_ts,
+                    received_at, props)
+    VALUES ('same-laptop', 1, 'upload', 1001.0, 5.0, '{}'),
+           ('same-laptop', 2, 'tests_run_complete', 1002.0, 5.0, '{}'),
+           ('same-laptop', 3, 'l3_hint_level', 1003.0, 5.0, '{}');
+""")
+    old.close()
+    pc = _proxy_client(monkeypatch)
+    assert pc.get("/v1/health").json()["events"] == 3
+    _, after = _reinstall_batches()
+    assert pc.post("/v1/events", json=after).json()["stored"] == 3
+    assert pc.get("/v1/health").json()["events"] == 6
+    conn = sqlite3.connect(os.environ["DLC_PROXY_DB"])
+    (sql,) = conn.execute("SELECT sql FROM sqlite_master WHERE name='events'"
+                          ).fetchone()
+    assert "stored_at)" in sql.replace(" ", "")
+    (mx,) = conn.execute("SELECT MAX(id) FROM events").fetchone()
+    conn.close()
+    assert mx == 6
+
+
+def test_fresh_spool_never_reuses_shipped_row_ids(tele_env, monkeypatch):
+    sink.log_events("s", [{"kind": "upload"}, {"kind": "upload"}])
+    conn = sink._connect()
+    first = [r[0] for r in conn.execute("SELECT id FROM events ORDER BY id")]
+    conn.close()
+    assert first[0] > 10**12 and first[1] == first[0] + 1
+    os.remove(os.environ["DLC_TELEMETRY_DB"])          # UNINSTALL
+    time.sleep(0.002)
+    sink.log_events("s", [{"kind": "upload"}])
+    conn = sink._connect()
+    (again,) = conn.execute("SELECT MIN(id) FROM events").fetchone()
+    conn.close()
+    assert again > first[-1]
+
+
 def test_ship_moves_spool_to_proxy_and_survives_offline(tele_env,
                                                         monkeypatch):
     monkeypatch.setattr(mach, "_raw_machine_identifier", lambda: "G-1")

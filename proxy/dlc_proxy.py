@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import time
 from datetime import date, datetime
@@ -73,7 +74,7 @@ CREATE TABLE IF NOT EXISTS events (
     stored_at REAL,
     received_at REAL NOT NULL,
     props TEXT NOT NULL,
-    UNIQUE(install_id, client_row_id)
+    UNIQUE(install_id, client_row_id, stored_at)
 );
 CREATE INDEX IF NOT EXISTS idx_ev_kind ON events(kind);
 CREATE INDEX IF NOT EXISTS idx_ev_machine ON events(install_id);
@@ -103,7 +104,41 @@ def _db() -> sqlite3.Connection:
         conn.execute("ALTER TABLE llm_calls ADD COLUMN response TEXT")
     except sqlite3.OperationalError:
         pass
+    _migrate_events_key(conn)
     return conn
+
+
+def _migrate_events_key(conn: sqlite3.Connection) -> None:
+    (sql,) = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'events'"
+    ).fetchone()
+    if not re.search(r"UNIQUE\s*\(\s*install_id\s*,\s*client_row_id\s*\)", sql):
+        return
+    conn.executescript("""
+BEGIN;
+CREATE TABLE events_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    install_id TEXT NOT NULL,
+    client_row_id INTEGER NOT NULL,
+    session_id TEXT,
+    kind TEXT NOT NULL,
+    client_ts REAL,
+    stored_at REAL,
+    received_at REAL NOT NULL,
+    props TEXT NOT NULL,
+    UNIQUE(install_id, client_row_id, stored_at)
+);
+INSERT INTO events_new (id, install_id, client_row_id, session_id, kind,
+                        client_ts, stored_at, received_at, props)
+    SELECT id, install_id, client_row_id, session_id, kind,
+           client_ts, COALESCE(stored_at, client_ts, 0.0), received_at, props
+    FROM events;
+DROP TABLE events;
+ALTER TABLE events_new RENAME TO events;
+CREATE INDEX IF NOT EXISTS idx_ev_kind ON events(kind);
+CREATE INDEX IF NOT EXISTS idx_ev_machine ON events(install_id);
+COMMIT;
+""")
 
 
 def _check_course_token(tok: str | None) -> None:
@@ -175,7 +210,7 @@ def ingest(req: EventsIn,
                 continue
             try:
                 with conn:
-                    conn.execute(
+                    cur = conn.execute(
                         "INSERT OR IGNORE INTO events (install_id,"
                         " client_row_id, session_id, kind, client_ts,"
                         " stored_at, received_at, props)"
@@ -184,9 +219,11 @@ def ingest(req: EventsIn,
                          int(ev.get("client_row_id") or 0),
                          ev.get("session_id"),
                          str(ev.get("kind"))[:64],
-                         ev.get("client_ts"), ev.get("stored_at"), now,
+                         ev.get("client_ts"),
+                         ev.get("stored_at") or ev.get("client_ts") or 0.0,
+                         now,
                          json.dumps(ev.get("props") or {})[:20000]))
-                stored += 1
+                stored += cur.rowcount
             except (sqlite3.Error, TypeError, ValueError):
                 continue
         return {"ok": True, "stored": stored}
