@@ -23,7 +23,9 @@ def tele_env(tmp_path, monkeypatch):
     monkeypatch.setenv("DLC_MACHINE_CACHE", str(tmp_path / "machine.json"))
     monkeypatch.setenv("DLC_PROXY_DB", str(tmp_path / "proxy.db"))
     monkeypatch.delenv("DLC_PROXY_URL", raising=False)
-    monkeypatch.delenv("DLC_COURSE_TOKEN", raising=False)
+    monkeypatch.setenv("DLC_COURSE_TOKEN", "tok")
+    monkeypatch.setenv("DLC_PROXY_TOKEN", "tok")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.delenv("DLC_ADMIN_TOKEN", raising=False)
     monkeypatch.delenv("DLC_GLOBAL_DAILY_CALLS", raising=False)
     monkeypatch.delenv("DLC_GLOBAL_DAILY_USD", raising=False)
@@ -64,7 +66,7 @@ def _proxy_client(monkeypatch, upstream=None):
                     "stop_reason": "end_turn", "model": kw.get("model")}
     import dlc.llm.client as real
     monkeypatch.setattr(real, "call_llm", upstream)
-    return TestClient(dlc_proxy.app)
+    return TestClient(dlc_proxy.app, headers={"X-DLC-Token": "tok"})
 
 
 def test_proxy_ingest_dedup_and_first_seen(tele_env, monkeypatch):
@@ -114,6 +116,45 @@ def test_proxy_course_token_gate(tele_env, monkeypatch):
     ok = pc.post("/v1/llm", json=body,
                  headers={"X-DLC-Token": "sekrit"})
     assert ok.status_code == 200 and ok.json()["ok"] is True
+
+
+def test_proxy_refuses_every_request_without_a_course_token(tele_env,
+                                                            monkeypatch):
+    monkeypatch.delenv("DLC_COURSE_TOKEN", raising=False)
+    pc = _proxy_client(monkeypatch)
+    body = {"install_id": "m", "feature": "modeA",
+            "model": "claude-opus-5", "prompt": "hi"}
+    assert pc.post("/v1/llm", json=body).status_code == 503
+    assert pc.post("/v1/llm", json=body,
+                   headers={"X-DLC-Token": "anything"}).status_code == 503
+    batch = {"install_id": "m", "events": []}
+    assert pc.post("/v1/events", json=batch).status_code == 503
+    h = pc.get("/v1/health")
+    assert h.status_code == 200
+    assert h.json()["course_token_set"] is False
+    assert h.json()["admin_token_set"] is False
+
+    monkeypatch.setenv("DLC_COURSE_TOKEN", "tok")
+    monkeypatch.setenv("DLC_ADMIN_TOKEN", "adm")
+    assert pc.post("/v1/events", json=batch).status_code == 200
+    h = pc.get("/v1/health").json()
+    assert h["course_token_set"] is True and h["admin_token_set"] is True
+
+
+def test_relay_names_a_missing_server_key_and_spends_nothing(tele_env,
+                                                             monkeypatch):
+    import dlc.llm.client as real
+    monkeypatch.setattr(real, "get_api_key", lambda p="anthropic": "")
+    pc = _proxy_client(monkeypatch)
+    body = {"install_id": "m", "feature": "modeA",
+            "model": "claude-opus-5", "prompt": "hi"}
+    r = pc.post("/v1/llm", json=body)
+    assert r.status_code == 200
+    out = r.json()
+    assert out["ok"] is False and out["server_misconfigured"] is True
+    assert "instructor" in out["error"] and "no API key" in out["error"]
+    assert pc.get("/v1/health").json()["today_calls"] == 0
+
 
 def test_ship_moves_spool_to_proxy_and_survives_offline(tele_env,
                                                         monkeypatch):
@@ -366,6 +407,9 @@ def test_saving_course_server_verifies_token(tele_env, monkeypatch):
     replies["code"] = 401
     assert wc.post("/api/config/proxy",
                    json=body).json()["verify"] == "bad_token"
+    replies["code"] = 503
+    assert wc.post("/api/config/proxy",
+                   json=body).json()["verify"] == "unreachable"
 
     def boom(*a, **kw):
         raise OSError("down")

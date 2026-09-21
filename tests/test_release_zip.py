@@ -34,3 +34,18 @@ def test_release_zip_contents(tmp_path):
 
     sh = next(i for i in z.infolist() if i.filename.endswith("/start.sh"))
     assert (sh.external_attr >> 16) & 0o111, "start.sh lost its exec bit"
+
+
+def test_release_zip_never_ships_a_ledger_or_a_secrets_file():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "make_release_zip", ROOT / "scripts" / "make_release_zip.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    for rel in ("proxy/dlc_proxy.db", "proxy/dlc_proxy.db-journal",
+                "proxy/dlc_proxy.db-wal", "data/anything.db",
+                "proxy/.env", "proxy/.env.local", "dlc/.env"):
+        assert mod._want(Path(rel)) is False, f"would ship {rel}"
+    for rel in ("proxy/dlc_proxy.py", "proxy/README.md",
+                "data/official_tests_defaults.json"):
+        assert mod._want(Path(rel)) is True, f"would drop {rel}"
