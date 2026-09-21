@@ -16,41 +16,36 @@ One small server the instructor runs. It does three jobs:
 
 ## Run it
 
-Anywhere with Python 3.12 + this repo cloned (campus VM, a $5 cloud
-box, or your own desktop (option A in instructor guide) for smoke tests):
+The per-OS commands, the address students paste, and the checks to run
+before class are in the instructor guide,
+[../docs/RELEASE_GUIDE.md](../docs/RELEASE_GUIDE.md) §3. The short form:
+four variables in one terminal window, then
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...     # your existing course key
-export DLC_COURSE_TOKEN=<any-long-random-string-you-invent>
-export DLC_ADMIN_TOKEN=<a-different-long-random-string>
-export DLC_PROXY_DB=/path/to/dlc_proxy.db   # default: ./dlc_proxy.db
 uv run uvicorn proxy.dlc_proxy:app --host 0.0.0.0 --port 8321
 ```
 
-On Windows there is no `export`: PowerShell uses `$env:ANTHROPIC_API_KEY =
-"..."`, Command Prompt uses `set ANTHROPIC_API_KEY=...` (no quotes, no
-spaces around `=`). Set them and start the proxy in the same window.
+| Variable | Meaning |
+|---|---|
+| `ANTHROPIC_API_KEY` | the key the relay uses; no endpoint ever returns it |
+| `DLC_COURSE_TOKEN` | what students paste. Unset, the proxy refuses every `/v1/llm` and `/v1/events` request (503) |
+| `DLC_ADMIN_TOKEN` | opens `/admin/*`. Unset, every admin request is refused |
+| `DLC_PROXY_DB` | the SQLite ledger (default `./dlc_proxy.db`); keep it outside the repo |
 
-Check it's alive, from the proxy machine: `curl http://localhost:8321/v1/health`.
-`"course_token_set"` must read `true` — when it is false the proxy has no
-course token and therefore accepts *everyone*, which looks exactly like
-working normally from the student side.
-
-Give students `http://<the proxy machine's LAN IP>:8321` as the course
-server URL, plus the DLC_COURSE_TOKEN value. They paste both in the tool's
-settings (stored in their `~/.dlc/config.json` as `proxy_url` /
-`proxy_token`). `localhost` only ever works on the proxy machine itself —
-[the instructor guide](../docs/RELEASE_GUIDE.md) shows how to find the LAN
-address on each OS.
+`GET /v1/health` reports `course_token_set`, `admin_token_set`,
+`key_configured` and `key_format_ok`; all four must read `true` before
+class. Students paste `http://<proxy machine's LAN address>:8321` (or your
+HTTPS URL) plus the course token under Settings → Course server; the tool
+stores them in `~/.dlc/config.json` as `proxy_url` / `proxy_token`.
 
 ## Endpoints
 
 | Route | What |
 |---|---|
-| `POST /v1/llm` | LLM relay (course-token gated): checks the machine's daily budget, attaches your key, forwards through the same client wrapper the tool uses, logs usage. |
+| `POST /v1/llm` | LLM relay (course-token gated): checks the machine's daily budget, attaches your key, forwards through the same client wrapper the tool uses, logs usage. With no key on the proxy it answers "no API key configured — tell your instructor" and spends nothing. |
 | `POST /v1/events` | Telemetry batch ingest, deduped on (machine, row id); stamps each machine's authoritative first-seen date. |
-| `GET /v1/health` | Liveness + counts. |
-| `GET /admin/summary?token=…` | Machines (first/last seen, versions, counts), event kinds, spend estimate. |
+| `GET /v1/health` | Liveness, counts, and the four configuration flags above. |
+| `GET /admin/view` | The dashboard; asks for the admin token once. Its JSON feeds are `/admin/summary`, `/admin/daily`, `/admin/events`, `/admin/llm_texts`, `/admin/stats` (`?token=…` or header `X-DLC-Admin-Token`). |
 | `GET /admin/export.csv?token=…&table=events\|machines\|llm_calls` | Raw CSVs for the evaluation pipeline. |
 
 ## Notes
@@ -60,7 +55,8 @@ address on each OS.
   `DLC_GLOBAL_DAILY_CALLS` (600) and `DLC_GLOBAL_DAILY_USD` (20) in the
   environment. The README's *Changing the limits* section shows all three
   layers side by side.
-- Storage is one SQLite file — back it up by copying it.
+- Storage is one SQLite file — back it up by copying it. The release zip
+  never includes `.db` files, but keep the ledger outside the repo anyway.
 - HTTPS: for a real semester put the proxy behind campus HTTPS or a
   reverse proxy (Try Caddy). Plain HTTP is fine for the second-computer smoke test.
 - Keep the repo on the proxy host up to date with your fork — the relay

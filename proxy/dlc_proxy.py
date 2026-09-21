@@ -108,7 +108,11 @@ def _db() -> sqlite3.Connection:
 
 def _check_course_token(tok: str | None) -> None:
     want = os.environ.get("DLC_COURSE_TOKEN")
-    if want and (tok or "") != want:
+    if not want:
+        raise HTTPException(
+            status_code=503,
+            detail="course server not configured: DLC_COURSE_TOKEN is unset")
+    if (tok or "") != want:
         raise HTTPException(status_code=401, detail="bad course token")
 
 
@@ -206,6 +210,13 @@ def relay(req: LlmIn,
     _check_course_token(x_dlc_token)
     if not req.install_id:
         raise HTTPException(status_code=400, detail="install_id required")
+    if not _effective_key():
+        return {"ok": False, "text": None,
+                "error": ("The course server has no API key configured — "
+                          "tell your instructor. All deterministic checks "
+                          "still work."),
+                "server_misconfigured": True,
+                "usage": None, "model": req.model}
     day = date.today().isoformat()
     budget = CALL_BUDGETS.get(req.feature, _DEFAULT_BUDGET)
     conn = _db()
@@ -272,13 +283,21 @@ def _effective_key() -> str:
 
 def _startup_sanity() -> None:
     key = _effective_key()
-    if key and not key.startswith("sk-"):
+    if not key:
+        print("WARNING: no API key — set ANTHROPIC_API_KEY in this terminal"
+              " window and start the proxy again. Until then every AI"
+              " request answers 'the course server has no API key'.")
+    elif not key.startswith("sk-"):
         print("WARNING: ANTHROPIC_API_KEY does not look like a real key"
               " (expected it to start with 'sk-'). LLM relays will fail"
               " with 401 until it is fixed.")
     if not os.environ.get("DLC_COURSE_TOKEN"):
-        print("WARNING: DLC_COURSE_TOKEN is not set — the proxy will"
-              " accept requests from ANYONE who finds the URL.")
+        print("WARNING: DLC_COURSE_TOKEN is not set — every student request"
+              " is refused (503) until it is. Set it in THIS terminal window"
+              " and start the proxy again.")
+    if not os.environ.get("DLC_ADMIN_TOKEN"):
+        print("WARNING: DLC_ADMIN_TOKEN is not set — the admin dashboard"
+              " rejects every token until it is.")
 
 
 @app.get("/v1/health")
@@ -299,6 +318,7 @@ def health() -> dict:
                 "key_configured": bool(key),
                 "key_format_ok": key.startswith("sk-") if key else False,
                 "course_token_set": bool(os.environ.get("DLC_COURSE_TOKEN")),
+                "admin_token_set": bool(os.environ.get("DLC_ADMIN_TOKEN")),
                 "today_calls": day_calls,
                 "today_est_usd": round(_est_usd(conn, day), 2),
                 "global_daily_calls": _global_daily_calls(),
