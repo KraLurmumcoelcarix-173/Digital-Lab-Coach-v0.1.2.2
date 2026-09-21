@@ -1,6 +1,6 @@
 # Digital Lab Coach (DLC)
 
-[![Download](docs/download_button.svg)](https://github.com/KraLurmumcoelcarix-173/Digital-Lab-Coach-v0.1.0/releases/latest/download/DigitalLabCoach.zip)
+[![Download](docs/download_button.svg)](https://github.com/KraLurmumcoelcarix-173/Digital-Lab-Coach-v0.1.2.2/releases/latest/download/DigitalLabCoach.zip)
 
 A hybrid deterministic-checker + LLM feedback tool for debugging
 [Digital](https://github.com/hneemann/Digital) circuit labs.
@@ -16,7 +16,7 @@ education and explore new means of interactive hardware design debugging.
 ![Dashboard view of mode A gif](docs/screenshots/modeA_sample.gif)
 
 ## Status
-v0.1.2.2 (2026/9/21) — Update Both proxy options' set up flow  
+v0.1.2.2 - 0.1.2.3 (2026/9/23) — Update Both proxy options' set up flow  
 v0.1.2.1 (2026/9/17) — Interface available in multi-language && a few small bug fixing.
 v0.1.2 (2026/9/10) — Mode A supports higher fixes with optimized latency and cost, signal flow walkthrough feature added in Layer 2.
 v0.1.1 (2026/8/24) — Supports 311 Digital transistor lab.
