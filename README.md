@@ -16,7 +16,7 @@ education and explore new means of interactive hardware design debugging.
 ![Dashboard view of mode A gif](docs/screenshots/modeA_sample.gif)
 
 ## Status
-v0.1.2.2 - 0.1.2.3 (2026/9/23) — Update Both proxy options' set up flow  
+v0.1.2.2 && 0.1.2.3 (2026/9/23) — Update Both proxy options' set up flow  
 v0.1.2.1 (2026/9/17) — Interface available in multi-language && a few small bug fixing.
 v0.1.2 (2026/9/10) — Mode A supports higher fixes with optimized latency and cost, signal flow walkthrough feature added in Layer 2.
 v0.1.1 (2026/8/24) — Supports 311 Digital transistor lab.
@@ -174,7 +174,7 @@ changes (or you fork DLC for another course):
 
 Mode A only starts once every subcircuit passes its own tests, so while
 it debugs the top circuit it does not simulate a passing child gate by
-gate — it evaluates the child's **formula model** instead.
+gate: it evaluates the child's **formula model** instead.
 
 There is nothing to configure for the shipped 311 labs: a model is picked by the
 child's interface and is used only after it reproduces every row of that
@@ -185,7 +185,7 @@ add a `subcircuits` block to the lab manifest — see
 the one-line `role` of each subcircuit. Layer 1's signal flow never uses
 models.
 
-Two CPU manifests ship: `data/manifests/cpu.json` for the eight-instruction
+Two CPU manifests ship for UNC 311: `data/manifests/cpu.json` for the eight-instruction
 Lab 5 subset and `data/manifests/cpu_new.json` for the full 37-instruction
 RV32I CPU (`cpu_new.dig` tree). For the RV32I lab the Coverage Coach runs 
 the program through a small RV32I interpreter, follows its branches and jumps
@@ -194,7 +194,7 @@ and splices any extension in  front of the loop since that program parks in a
 
 ### The admin dashboard
 
-Open `http://<proxy-host>:8321/admin/view`, enter the admin token once:
+Open `http://<LAN address>:8321/admin/view`, enter the admin token once:
  machines, per-day activity, per-day LLM usage and estimated spend, 
  breaker state. Raw exports: `/admin/export.csv?table=events|machines|llm_calls`.
 
