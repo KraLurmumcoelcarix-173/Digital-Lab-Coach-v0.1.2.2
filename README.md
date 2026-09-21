@@ -16,6 +16,7 @@ education and explore new means of interactive hardware design debugging.
 ![Dashboard view of mode A gif](docs/screenshots/modeA_sample.gif)
 
 ## Status
+v0.1.2.2 (2026/9/21) — Update Both proxy options' set up flow  
 v0.1.2.1 (2026/9/17) — Interface available in multi-language && a few small bug fixing.
 v0.1.2 (2026/9/10) — Mode A supports higher fixes with optimized latency and cost, signal flow walkthrough feature added in Layer 2.
 v0.1.1 (2026/8/24) — Supports 311 Digital transistor lab.
@@ -29,8 +30,7 @@ v0.1.0 (2026/8/23) — first packaged release.
   - [Telemetry statement](#telemetry-statement)
   - [Uninstalling](#uninstalling)
 - [Instructor setup](#instructor-setup)
-  - [Course tokens](#course-tokens)
-  - [Running the course proxy](#running-the-course-proxy)
+  - [Tokens, proxy, and hosting](#tokens-proxy-and-hosting)
   - [Changing the limits](#changing-the-limits)
   - [Adapting the course syllabus](#adapting-the-course-syllabus-layer-2-lecture-tags)
   - [Subcircuits as formula models](#subcircuits-as-formula-models-layer-3-mode-a)
@@ -65,15 +65,20 @@ v0.1.0 (2026/8/23) — first packaged release.
    few minutes; your browser then opens the app at
    `http://127.0.0.1:8765`.
 
-3. First run asks for your `Digital.jar` location — the same jar you run
-   labs with (see the Digital.jar section below if you don't have one).
-4. Open **Settings (gear icon) → Course server** and paste the **URL +
-   course token** from your instructor. That powers all AI features — no
-   personal API key needed. If your instructor announces a new token
-   later, paste it in the same place.
+3. Open **Settings (gear icon, top right)**:
+   - **Course server**: paste the **URL + course token** from your
+     instructor and save; it answers *connected — token accepted ✓*. That
+     powers all AI features — no personal API key needed. If your
+     instructor announces a new URL or token later, paste it in the same
+     place (press **Disconnect** first if an old one is shown).
+   - **Language**: pick yours if you wish; the interface switches at once. 
+     AI answers stay in English.
 
 ![Course server settings](docs/screenshots/settings_course_server.png)
 
+4. `Digital.jar`: the first run asks where it is — the same jar you run
+   labs with (see the Digital.jar section below if you don't have one). If
+   you closed that dialog, it is under **Settings → Digital.jar**.
 5. Upload your `.dig` files and start debugging: interactive graph, structural
    issues, per-row tests, signal flow, and the Layer 2/3 AI coach.
 
@@ -131,46 +136,14 @@ The detailed version: [docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md):
    API key), and hand students your release URL + the proxy URL + course
    token.
 
-### Course tokens
+### Tokens, proxy, and hosting
 
-```bash
-python -c "import secrets; print('course-' + secrets.token_urlsafe(18))"
-python -c "import secrets; print('admin-'  + secrets.token_urlsafe(18))"
-```
-
-### Running the course proxy
-
-You are only allowed to release DLC with built-in proxy with IRB permission
-from your department. If you don't need to collect student's data for research
-or course-improvement study use, feel free to modify proxy/dlc_proxy.py.
-
-The proxy ([proxy/README.md](proxy/README.md)) holds your API key,
-enforces per-machine daily limits, collects the anonymized telemetry
-and serves the admin dashboard:
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-... # not retrievable through any endpoint, relay returns only model output
-export DLC_COURSE_TOKEN=<course token>
-export DLC_ADMIN_TOKEN=<admin token>
-export DLC_PROXY_DB=/path/to/dlc_proxy.db
-uv run uvicorn proxy.dlc_proxy:app --host 0.0.0.0 --port 8321
-```
-
-On Windows, `export` is not a command: use `set NAME=value` in Command
-Prompt or `$env:NAME = "value"` in PowerShell, in the same window you start
-the proxy from. Then confirm `curl http://localhost:8321/v1/health` reports
-`"course_token_set":true` — a course token that never reached the process
-leaves the proxy open to anyone who finds the URL, which from the student
-side is indistinguishable from working. Students point at
-`http://<the proxy machine's LAN IP>:8321`; `localhost` only works on the
-proxy machine itself.
-
-Three spend-protection layers are on by default: per-student daily caps
-(Mode A 1/day, Mode B 2/day), per-machine wipe-proof backstops, and a
-whole-server daily circuit breaker (`DLC_GLOBAL_DAILY_CALLS`, default
-600 calls; `DLC_GLOBAL_DAILY_USD`, default $20). Deployment options 
-(own machine vs VPS with HTTPS), and how to find that LAN address on each
-OS, are in the release guide.
+Generating the two secrets, starting the proxy on your own laptop or on a
+server, finding the address students paste, and the checks to run before
+class are one runbook: [docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md)
+§2–§4. Use the built-in proxy only with IRB permission from your
+department; without a data-collection study, adapt
+[`proxy/dlc_proxy.py`](proxy/dlc_proxy.py) to your classroom.
 
 ### Changing the limits
 
