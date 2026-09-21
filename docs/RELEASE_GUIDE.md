@@ -1,4 +1,4 @@
-# Release & Course-Deployment Guide
+# Release & Course-Deployment Guide (Last updated: 9/21/26)
 
 The operational runbook for shipping DLC to a class. Written for the
 instructor teaching undergraduates with Digital; students never need to read this file.
@@ -21,7 +21,7 @@ Three pieces:
 3. **Two secrets**: the course token students paste once, and the
    admin token only you hold that opens the admin dashboard.
 
-Prerequisites: all tests in your fork are green (`uv run pytest -q` —
+Prerequisites: all tests in your fork are green (`uv run pytest -q`
 with `DIGITAL_JAR` set so the jar-gated tests run too).
 
 ## 1. Build the zip and cut the GitHub release
@@ -36,12 +36,12 @@ with `DIGITAL_JAR` set so the jar-gated tests run too).
 
 3. Tag and push:
    ```bash
-   git tag v0.1.2
-   git push origin v0.1.2
+   git tag v0.1.2.2
+   git push origin v0.1.2.2
    ```
 4. On GitHub: **Releases → Draft a new release** → choose tag,
    title, and attach `dist/DigitalLabCoach.zip` as a release asset. 
-   Keep the filename exactly `DigitalLabCoach.zip` — the README Download
+   Keep the filename exactly `DigitalLabCoach.zip` - the README Download
    button URL depends on it and will keep working for every future version. 
    Publish.
 
@@ -63,10 +63,10 @@ and nothing else in this guide asks you to remember anything.
 
 | Course card | Your value | Used where |
 |---|---|---|
-| API key | `sk-ant-…` | proxy variable `ANTHROPIC_API_KEY` — never leaves the proxy |
+| API key | `sk-ant-…` | proxy variable `ANTHROPIC_API_KEY` - never leaves the proxy |
 | Course token | `course-…` | proxy variable `DLC_COURSE_TOKEN`; **students paste it** |
 | Admin token | `admin-…` | proxy variable `DLC_ADMIN_TOKEN`; only you, on the dashboard |
-| Ledger file | Windows `C:\dlc-proxy\dlc_proxy.db` · macOS `$HOME/dlc-proxy/dlc_proxy.db` | proxy variable `DLC_PROXY_DB` — a folder **outside** the repo; it holds the telemetry |
+| Ledger file | Windows `C:\dlc-proxy\dlc_proxy.db` · macOS `$HOME/dlc-proxy/dlc_proxy.db` | proxy variable `DLC_PROXY_DB`: a folder **outside** the repo; it holds the telemetry |
 | LAN address of the proxy machine | `192.168.…` / `10.…` (step 3.3) | inside the two URLs below |
 | Course server URL | `http://<LAN address>:8321` | **students paste it** under Settings → Course server |
 | Admin dashboard | `http://<LAN address>:8321/admin/view` | you, with the admin token |
@@ -90,10 +90,10 @@ For anything more, see [Option B](#4-option-b--a-server-that-is-always-on).
 
 Open **one** terminal window in your DLC fork and paste the block for your
 OS, with the values from the course card. The variables belong to that one
-window: set them and start the proxy in the same window, and keep it open —
+window: set them and start the proxy in the same window, and keep it open as
 closing it stops the proxy. `Ctrl+C` stops it on purpose.
 
-**Windows — Command Prompt** (the prompt reads `C:\…>`; no quotes, no spaces
+**Windows - Command Prompt** (the prompt reads `C:\…>`; no quotes, no spaces
 around `=`):
 
 ```bat
@@ -105,8 +105,7 @@ set DLC_PROXY_DB=C:\dlc-proxy\dlc_proxy.db
 uv run uvicorn proxy.dlc_proxy:app --host 0.0.0.0 --port 8321
 ```
 
-**Windows — PowerShell** (the prompt reads `PS C:\…>`; `set` does something
-else here):
+**Windows - PowerShell** (the prompt reads `PS C:\…>`):
 
 ```powershell
 cd C:\path\to\your\DLC\fork
@@ -117,7 +116,7 @@ $env:DLC_PROXY_DB = "C:\dlc-proxy\dlc_proxy.db"
 uv run uvicorn proxy.dlc_proxy:app --host 0.0.0.0 --port 8321
 ```
 
-**macOS / Linux — Terminal**:
+**macOS / Linux - Terminal**:
 
 ```bash
 cd ~/path/to/your/DLC/fork
@@ -128,12 +127,11 @@ export DLC_PROXY_DB=$HOME/dlc-proxy/dlc_proxy.db
 uv run uvicorn proxy.dlc_proxy:app --host 0.0.0.0 --port 8321
 ```
 
-`--host 0.0.0.0` is typed exactly as written: it means "answer on every
-network interface of this machine", which is what lets other laptops reach
-the proxy. The ledger folder is created if it does not exist.
+`--host 0.0.0.0` means "answer on every network interface of this machine", 
+which is what lets other laptops reach the proxy. The ledger folder is created if it does not exist.
 
 A clean start prints no `WARNING:` line. Each missing value prints one,
-naming the variable — read the terminal once before going on.
+naming the variable, so read the terminal once before going on.
 
 ### 3.2 Check it
 
@@ -159,7 +157,7 @@ terminal says at startup, this output is the state of the running proxy.
 
 ### 3.3 Find the address students use
 
-`localhost` in the check above means "this computer" — it works only on the
+`localhost` in the check above means "this computer", it works only on the
 proxy machine, and on a student's laptop it points at their own laptop. Every
 other computer needs the proxy machine's address on the network. Run this
 **on the proxy machine**:
@@ -192,7 +190,7 @@ This is the test that matters, and it takes five minutes.
 3. **Still on the second laptop**, try `http://localhost:8321` with the
    course token. Settings answers *saved, but the course server can't be
    reached right now…* and every AI feature says it cannot reach the course
-   server. That is correct — `localhost` is that laptop — and it is also
+   server. That is correct - `localhost` is that laptop - and it is also
    why nobody can use the AI features without the real URL and the token.
    A wrong token is answered with *server reachable but the token was
    REJECTED*.
@@ -203,7 +201,7 @@ When step 2 fails while step 1 worked, it is one of the four things below.
 
 - **The firewall.** Windows Defender blocks port 8321 until you allow it
   (the prompt appears at the first launch; allow it on private *and* public
-  networks — campus Wi-Fi counts as public). macOS asks once whether to
+  networks as campus Wi-Fi counts as public). macOS asks once whether to
   accept incoming connections.
 - **The address moves.** The router hands it out and can change it on
   reboot or when the machine joins a different network. Check `ipconfig` /
