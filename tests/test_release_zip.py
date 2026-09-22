@@ -34,6 +34,31 @@ def test_release_zip_contents(tmp_path):
 
     sh = next(i for i in z.infolist() if i.filename.endswith("/start.sh"))
     assert (sh.external_attr >> 16) & 0o111, "start.sh lost its exec bit"
+    for n in names:
+        if n.endswith(".sh"):
+            assert b"\r" not in z.read(n), f"{n} would fail on macOS (CRLF)"
+        if n.endswith(".bat"):
+            assert b"\r\n" in z.read(n), f"{n} lost its CRLF endings"
+
+
+def test_release_zip_fixes_line_endings_from_a_windows_checkout(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "make_release_zip", ROOT / "scripts" / "make_release_zip.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    sh = tmp_path / "start.sh"
+    sh.write_bytes(b"#!/usr/bin/env bash\r\nset -e\r\necho hi\r\n")
+    assert mod._payload(sh) == b"#!/usr/bin/env bash\nset -e\necho hi\n"
+    bat = tmp_path / "START_HERE.bat"
+    bat.write_bytes(b"@echo off\nset X=1\n")
+    assert mod._payload(bat) == b"@echo off\r\nset X=1\r\n"
+    py = tmp_path / "a.py"
+    py.write_bytes(b"x = 1\r\n")
+    assert mod._payload(py) == b"x = 1\n"
+    png = tmp_path / "a.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n")
+    assert mod._payload(png) == b"\x89PNG\r\n\x1a\n"
 
 
 def test_release_zip_never_ships_a_ledger_or_a_secrets_file():

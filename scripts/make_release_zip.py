@@ -38,6 +38,21 @@ def _version(root: Path) -> str:
     return m.group(1) if m else "0.0.0"
 
 
+_TEXT_SUFFIXES = {".py", ".md", ".txt", ".json", ".toml", ".lock", ".js",
+                  ".css", ".html", ".svg", ".dig", ".sh", ".cfg", ".ini",
+                  ".yml", ".yaml"}
+_TEXT_NAMES = {".python-version", ".env.example"}
+
+
+def _payload(path: Path) -> bytes:
+    data = path.read_bytes()
+    if path.suffix == ".bat":
+        return data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    if path.suffix in _TEXT_SUFFIXES or path.name in _TEXT_NAMES:
+        return data.replace(b"\r\n", b"\n")
+    return data
+
+
 def _want(path: Path) -> bool:
     if any(part in EXCLUDE_DIR_NAMES for part in path.parts):
         return False
@@ -67,7 +82,7 @@ def build(root: Path, out_dir: Path) -> Path:
             info.compress_type = zipfile.ZIP_DEFLATED
             mode = 0o755 if p.suffix == ".sh" else 0o644
             info.external_attr = mode << 16
-            z.writestr(info, p.read_bytes())
+            z.writestr(info, _payload(p))
     print(f"wrote {out}  ({out.stat().st_size / 1e6:.1f} MB, "
           f"{len(files)} files, top folder {prefix})")
     return out

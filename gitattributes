@@ -1,0 +1,4 @@
+# Shell launchers must reach every checkout with LF, whatever core.autocrlf
+# says; batch files keep CRLF. Everything else follows git's text detection.
+*.sh   text eol=lf
+*.bat  text eol=crlf
