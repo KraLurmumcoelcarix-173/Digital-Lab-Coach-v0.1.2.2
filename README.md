@@ -101,8 +101,11 @@ internet at all. Only the AI coach needs the course-server connection.
 
 ### Telemetry Statement
 
-DLC records anonymized usage events (feature clicks, test runs, coach
-outcomes) keyed to a hashed machine id only. Related codes are public
+DLC records anonymized usage events (feature clicks, Layer 1 verdicts, test
+runs, coach outcomes, and - between two uploads of the same file - how many
+components and wires changed and whether the edit touched what the coach had
+named; counts and element kinds only, never the circuit itself) keyed to a
+hashed machine id only. Related codes are public
 and stored at proxy/ and telemetry/, DLC never modifies a student's 
 uploaded files. Events sync to the course server for course-improvement research.
 This process begins if and only if admin gains IRB permission from the department. 

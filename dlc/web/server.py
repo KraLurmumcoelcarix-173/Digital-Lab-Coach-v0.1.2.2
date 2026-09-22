@@ -347,6 +347,20 @@ async def circuit(files: list[UploadFile] = File(...)) -> dict:
                             "to run until the ROM matches.")
             except Exception:
                 pass
+            try:
+                own_rows = sum(s.row_count() for s in extract_test_specs(c))
+            except Exception:
+                own_rows = None
+            reupload = None
+            try:
+                fp = _fingerprint(c)
+                prev = _LAST_UPLOAD.get(name)
+                if prev is not None:
+                    reupload = _reupload_diff(prev, fp,
+                                              _LAST_SUSPECTS.pop(name, None))
+                _LAST_UPLOAD[name] = fp
+            except Exception:
+                pass
             results.append({
                 "filename": name,
                 "graph": to_cytoscape(c, nl, g),
@@ -354,6 +368,8 @@ async def circuit(files: list[UploadFile] = File(...)) -> dict:
                 "issues": issues_payload,
                 "issues_error": issues_error,
                 "error": None,
+                "testcase_rows": own_rows,
+                "reupload": reupload,
             })
         except Exception as exc:
             results.append({
@@ -366,6 +382,59 @@ async def circuit(files: list[UploadFile] = File(...)) -> dict:
             })
 
     return {"session_id": session_id, "files": results}
+
+_LAST_UPLOAD: dict[str, dict] = {}
+_LAST_SUSPECTS: dict[str, dict] = {}
+
+
+def _fingerprint(circuit) -> dict:
+    comps = {}
+    for comp in circuit.components:
+        key = (comp.element_name, comp.position.x, comp.position.y)
+        comps[key] = tuple(sorted((str(k), str(v))
+                                  for k, v in (comp.attributes or {}).items()))
+    wires = {tuple(sorted(w.endpoints())) for w in circuit.wires}
+    return {"comps": comps, "wires": wires}
+
+
+def _component_marks(circuit, netlist, indices) -> tuple[set, set]:
+    wanted = set(indices)
+    keys, pins = set(), set()
+    for i in wanted:
+        if 0 <= i < len(circuit.components):
+            c = circuit.components[i]
+            keys.add((c.element_name, c.position.x, c.position.y))
+    for net in netlist.nets:
+        for p in net.pins:
+            if p.component_index in wanted:
+                pins.add((p.x, p.y))
+    return keys, pins
+
+
+def _reupload_diff(prev: dict, now: dict, marks: dict | None) -> dict:
+    pc, nc = prev["comps"], now["comps"]
+    added = [k for k in nc if k not in pc]
+    removed = [k for k in pc if k not in nc]
+    changed = [k for k in nc if k in pc and nc[k] != pc[k]]
+    wire_delta = prev["wires"] ^ now["wires"]
+    out = {"comps_added": len(added), "comps_removed": len(removed),
+           "comps_changed": len(changed), "wires_changed": len(wire_delta),
+           "kinds_touched": sorted({k[0] for k in added + removed + changed})[:8],
+           "had_suspects": bool(marks and marks.get("suspects"))}
+
+    def touched(keys, pins):
+        if any(k not in nc or nc[k] != pc.get(k) for k in keys):
+            return True
+        return any(p in pins for w in wire_delta for p in w)
+
+    if marks and marks.get("suspects"):
+        out["touched_suspect"] = touched(marks["suspects"],
+                                         marks.get("suspect_pins", set()))
+    if marks and marks.get("cards"):
+        out["touched_card"] = touched(marks["cards"],
+                                      marks.get("card_pins", set()))
+    return out
+
 
 def _resolve_target(session_id: str, filename: str) -> dict:
     session = _SESSIONS.get(session_id)

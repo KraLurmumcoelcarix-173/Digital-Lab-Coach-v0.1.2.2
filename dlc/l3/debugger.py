@@ -1113,6 +1113,9 @@ def debug_circuit(dig_path: str, *, spec_name: str | None = None,
                 pass
 
     return {**base, "mode": "analysis",
+            "suspect_indices": sorted({
+                i for c in evres.clusters
+                for i in list(c.merged.suspect_indices())[:3]}),
             "diagnosis_lines": ([_diagnosis_line(c) for c in evres.clusters]
                                 + _consequence_lines(evres)),
             "clusters": evres.to_dict()["clusters"],

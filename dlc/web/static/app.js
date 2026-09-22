@@ -550,6 +550,21 @@ async function postAll() {
   loaded = data.files || [];
   sessionId = data.session_id || null;
   logEvent("upload", { session_id: sessionId, count: loaded.length });
+  for (const f of loaded) {
+    const issues = f.issues || [];
+    const kinds = Array.from(new Set(issues.map((i) => i.kind))).sort();
+    logEvent("l1_result", {
+      filename: f.filename,
+      failed: !!f.error,
+      errors: issues.filter((i) => i.severity === "error").length,
+      warnings: issues.filter((i) => i.severity === "warning").length,
+      kinds,
+      unsupported: kinds.includes("unsupported_element"),
+      testcase_rows: f.testcase_rows ?? null,
+      official_test_status: (f.summary && f.summary.official_test_status) || null,
+    });
+    if (f.reupload) logEvent("reupload_diff", { filename: f.filename, ...f.reupload });
+  }
   l3ExpireAll("re-upload");   // hypothesis cards die on re-upload (l3.debug.v1.1 §7)
   l2ForgetAll();
   if (loaded.length === 0) {
@@ -1650,8 +1665,21 @@ async function pollFor(filename, jobId) {
 }
 
 function finalizeSlot(filename, payload, mode) {
+  let total = 0, failing = 0, counted = false;
+  for (const sp of payload.specs || []) {
+    if (Array.isArray(sp.rows)) {
+      counted = true;
+      total += sp.rows.length;
+      failing += sp.rows.filter((r) => r.status !== "passed").length;
+    } else if (sp.failing_rows != null) {
+      counted = true;
+      failing += Number(sp.failing_rows) || 0;
+    }
+  }
   logEvent("tests_run_complete", {
     filename, mode, ok: payload.ok, all_passed: payload.all_passed,
+    failing_rows: counted ? failing : null,
+    total_rows: counted && total ? total : null,
   });
   if (!payload.ok) {
     setTestSlot(filename, { status: "warning", message: payload.warning || "Test runner reported an error.", mode });

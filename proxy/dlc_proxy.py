@@ -591,12 +591,52 @@ def admin_stats(token: str | None = Query(default=None),
         top_kinds = [dict(zip(("kind", "n"), r)) for r in conn.execute(
             f"SELECT kind, COUNT(*) FROM events WHERE {ev_day} >= ?"
             f" GROUP BY kind ORDER BY COUNT(*) DESC LIMIT 15", (since,))]
-        (a_runs, a_confirmed, a_cards) = conn.execute(
-            f"SELECT COUNT(*),"
-            f" COALESCE(SUM(json_extract(props, '$.confirmed')), 0),"
-            f" COALESCE(SUM(json_extract(props, '$.cards')), 0)"
-            f" FROM events WHERE kind = 'l3_modeA_result_server'"
+        by_mode = {}
+        for m, n, c, k in conn.execute(
+                f"SELECT COALESCE(json_extract(props, '$.mode'), 'analysis'),"
+                f" COUNT(*),"
+                f" COALESCE(SUM(json_extract(props, '$.confirmed')), 0),"
+                f" COALESCE(SUM(json_extract(props, '$.cards')), 0)"
+                f" FROM events WHERE kind = 'l3_modeA_result_server'"
+                f" AND {ev_day} >= ? GROUP BY 1", (since,)):
+            by_mode[m] = (n, int(c or 0), int(k or 0))
+        a_runs, a_confirmed, a_cards = by_mode.get("analysis", (0, 0, 0))
+        a_refused = {m: v[0] for m, v in by_mode.items() if m != "analysis"}
+        (locked,) = conn.execute(
+            f"SELECT COUNT(*) FROM events WHERE kind = 'l3_locked'"
             f" AND {ev_day} >= ?", (since,)).fetchone()
+        if locked:
+            a_refused["l1_locked"] = locked
+        (l1_files, l1_err, l1_unsup, l1_failed, l1_rows) = conn.execute(
+            f"SELECT COUNT(*),"
+            f" COALESCE(SUM(json_extract(props, '$.errors') > 0), 0),"
+            f" COALESCE(SUM(json_extract(props, '$.unsupported') = 1), 0),"
+            f" COALESCE(SUM(json_extract(props, '$.failed') = 1), 0),"
+            f" AVG(json_extract(props, '$.testcase_rows'))"
+            f" FROM events WHERE kind = 'l1_result'"
+            f" AND {ev_day} >= ?", (since,)).fetchone()
+        (t_runs, t_pass, t_fail_rows) = conn.execute(
+            f"SELECT COUNT(*),"
+            f" COALESCE(SUM(json_extract(props, '$.all_passed') = 1), 0),"
+            f" AVG(json_extract(props, '$.failing_rows'))"
+            f" FROM events WHERE kind = 'tests_run_complete'"
+            f" AND {ev_day} >= ?", (since,)).fetchone()
+        (h_re, h_suspect, h_card) = conn.execute(
+            f"SELECT COUNT(*),"
+            f" COALESCE(SUM(json_extract(props, '$.touched_suspect') = 1), 0),"
+            f" COALESCE(SUM(json_extract(props, '$.touched_card') = 1), 0)"
+            f" FROM events WHERE kind = 'reupload_diff'"
+            f" AND json_extract(props, '$.had_suspects') = 1"
+            f" AND {ev_day} >= ?", (since,)).fetchone()
+        l1 = {"files": l1_files, "with_errors": int(l1_err),
+              "unsupported": int(l1_unsup), "failed": int(l1_failed),
+              "avg_test_rows": (round(l1_rows, 1) if l1_rows is not None
+                                else None)}
+        tests = {"runs": t_runs, "all_passed": int(t_pass),
+                 "avg_failing_rows": (round(t_fail_rows, 1)
+                                      if t_fail_rows is not None else None)}
+        hint = {"reuploads": h_re, "touched_suspect": int(h_suspect),
+                "touched_card": int(h_card)}
         (b_runs,) = conn.execute(
             f"SELECT COUNT(*) FROM events"
             f" WHERE kind = 'l3_modeB_result_server' AND {ev_day} >= ?",
@@ -629,9 +669,13 @@ def admin_stats(token: str | None = Query(default=None),
                 "active_by_day": active_by_day,
                 "by_feature": features,
                 "top_kinds": top_kinds,
+                "l1": l1,
+                "tests": tests,
                 "l3": {"modeA_runs": a_runs,
                        "modeA_confirmed": int(a_confirmed or 0),
                        "modeA_cards": int(a_cards or 0),
+                       "modeA_refused": a_refused,
+                       "hint_targeting": hint,
                        "modeB_runs": b_runs, "fixes_accepted": accepts},
                 "spend_by_day": [
                     {"day": d, "est_usd": round(v, 2),
@@ -861,17 +905,45 @@ function describe(kind,p){
     case "upload": return `uploaded ${p.count??"?"} file(s)`;
     case "tests_run_started": return `running tests on ${f} (${esc(p.mode||"")})`;
     case "tests_run_all_started": return "running ALL files' tests";
-    case "tests_run_complete":
+    case "l1_result":{
+      if(p.failed)return `Layer 1 on ${f}: could not analyze (file failed to parse)`;
+      const bits=[`${p.errors??0} error(s)`,`${p.warnings??0} warning(s)`];
+      if(p.unsupported)bits.push("unsupported component");
+      if(p.testcase_rows!=null)bits.push(`${p.testcase_rows} test row(s)`);
+      const kinds=(p.kinds||[]).length?" — "+esc(p.kinds.join(", ")):"";
+      return `Layer 1 on ${f}: ${bits.join(", ")}${kinds}`;}
+    case "reupload_diff":{
+      const hit=p.had_suspects
+        ?(p.touched_suspect?"; the edit touched a named suspect":"; the edit missed the named suspects")
+        :"";
+      return `re-upload of ${f}: +${p.comps_added??0} / −${p.comps_removed??0} / ~${p.comps_changed??0} component(s), `+
+        `${p.wires_changed??0} wire(s)${hit}`;}
+    case "l3_locked":
+      return `Mode A locked on ${f}: ${p.reason==="parse_failed"?"file failed to parse":`${p.errors??"?"} Layer-1 error(s) unresolved`}`;
+    case "tests_run_complete":{
+      if(p.ok===false)return `tests on ${f}: runner error`;
+      if(p.all_passed)return `tests on ${f}: all rows passed`;
+      const rows=p.failing_rows!=null?` (${p.failing_rows}${p.total_rows?"/"+p.total_rows:""} row(s) failing)`:"";
+      return `tests on ${f}: some rows failed${rows}`;}
     case "tests_run_all_complete": return `tests finished ${kv(p)?"— "+esc(kv(p)):""}`;
     case "l2_llm_started": return "L2 summary requested";
     case "l2_llm_complete": return `L2 summary done ${p.model?"("+esc(p.model)+")":""}`;
     case "l3_modeA_started": return `Mode A started on ${f}`;
-    case "l3_modeA_result_server":
+    case "l3_modeA_result_server":{
+      const why={rom_mismatch:"refused: ROM contents differ",
+                 lazy:"refused: lazy gate (too many failures)",
+                 unsupported:"refused: unsupported circuit",
+                 limited:"refused: daily cap",
+                 clear:"nothing to debug, every row passes",
+                 error:"error"}[p.mode||"analysis"];
+      if(why)return `Mode A on ${f}: ${why}`;
       return `Mode A on ${f}: ${p.cards??0} card(s)`+
         `${p.confirmed?", confirmed &#10003;":""}, `+
-        `${p.llm_calls??0} LLM call(s)${p.model?", "+esc(p.model):""}`;
-    case "l3_modeB_result_server":
-      return `Coverage Coach on ${f}: ${kv(p)?esc(kv(p)):"done"}`;
+        `${p.llm_calls??0} LLM call(s)${p.model?", "+esc(p.model):""}`;}
+    case "l3_modeB_result_server":{
+      const why={limited:"refused: daily cap",unsupported:"refused: unsupported circuit",error:"error"}[p.mode];
+      if(why)return `Coverage Coach on ${f}: ${why}`;
+      return `Coverage Coach on ${f}: ${p.proposals??0} proposal(s)${p.refunded?", use refunded":""}`;}
     case "l3_accept_fix_server":
     case "l3_fix_accepted": return `student ACCEPTED a fix ${f?("on "+f):""}`;
     case "l3_fix_animation_played": return "fix walkthrough animation played";
@@ -884,7 +956,8 @@ function describe(kind,p){
     case "l3_acceptfail_popup_shown": return "told that the accepted fix still fails rows";
     case "l3_acceptfail_kept": return "kept the fix despite failing rows";
     case "l3_acceptfail_discarded": return "discarded the fix after failing rows";
-    case "l3_circuit_re_uploaded": return `re-uploaded ${f} after a fix`;
+    case "l3_circuit_re_uploaded":
+      return `re-uploaded after a coach result${(p.files||[]).length?": "+esc(p.files.join(", ")):(f?" "+f:"")}`;
     case "l3_netids_toggled":
     case "netids_toggled": return "toggled net ids on the graph";
     case "l3_netref_flashed": return "flashed a net reference on the graph";
@@ -1025,6 +1098,9 @@ async function loadStats(){
   $("st-since").textContent=`since ${d.since}`;
   const t=d.totals;
   const okPct=t.llm_calls?Math.round(100*t.ok_calls/t.llm_calls):100;
+  const l1=d.l1||{},te=d.tests||{};
+  const errPct=l1.files?Math.round(100*(l1.with_errors||0)/l1.files):0;
+  const passPct=te.runs?Math.round(100*(te.all_passed||0)/te.runs):0;
   $("st-tiles").innerHTML=[
     [t.active_machines,"active machines"],
     [t.new_machines,"new machines"],
@@ -1032,15 +1108,27 @@ async function loadStats(){
     [`${t.llm_calls} (${okPct}% ok)`,"AI calls"],
     [`${t.in_tokens}→${t.out_tokens}`,"tokens in→out"],
     ["$"+t.est_usd,"spend (est)"],
+    [l1.files??0,"files analysed (Layer 1)"],
+    [`${l1.with_errors??0} (${errPct}%)`,"with structural errors"],
+    [`${l1.unsupported??0} / ${l1.failed??0}`,"unsupported / failed to parse"],
+    [l1.avg_test_rows??"–","avg test rows per file"],
+    [`${te.runs??0} (${passPct}% all-pass)`,"test runs"],
+    [te.avg_failing_rows??"–","avg failing rows per run"],
   ].map(([v,l])=>`<div class="tile"><b>${v}</b><span>${l}</span></div>`).join("");
   bars($("st-daily"),d.active_by_day,r=>r.day,r=>r.events,
        r=>`${r.events} events · ${r.machines} machine(s)`);
   const l3=d.l3;
   const confPct=l3.modeA_runs?Math.round(100*l3.modeA_confirmed/l3.modeA_runs):0;
+  const ref=l3.modeA_refused||{};
+  const refTotal=Object.values(ref).reduce((a,b)=>a+b,0);
+  const refDetail=Object.entries(ref).map(([k,v])=>`${esc(k)} ${v}`).join(", ");
+  const h=l3.hint_targeting||{};
   $("st-l3").innerHTML=[
-    [l3.modeA_runs,"Mode A runs"],
+    [l3.modeA_runs,"Mode A analyses"],
     [`${l3.modeA_confirmed} (${confPct}%)`,"confirmed fixes"],
     [l3.modeA_cards,"fix cards shown"],
+    [refTotal,"Mode A refused"+(refDetail?` (${refDetail})`:"")],
+    [`${h.touched_suspect??0} / ${h.reuploads??0}`,"re-uploads whose edit hit a named suspect"],
     [l3.modeB_runs,"Mode B runs"],
     [l3.fixes_accepted,"fixes accepted"],
   ].map(([v,l])=>`<div class="tile"><b>${v}</b><span>${l}</span></div>`).join("");

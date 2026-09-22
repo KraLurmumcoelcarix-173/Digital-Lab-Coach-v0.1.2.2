@@ -81,8 +81,11 @@ def l3_coverage(req: CoverageRequest) -> dict:
         scan_path, on_temp = _lt["path"], True
     guard = _transistor_guard(scan_path)
     if guard is not None:
+        _log_modeB_result(req.session_id, req.filename,
+                          {"mode": "unsupported"})
         return guard
     if not limits.allowed("modeB"):
+        _log_modeB_result(req.session_id, req.filename, {"mode": "limited"})
         return {
             "ok": False,
             "limited": True,
@@ -132,6 +135,8 @@ def l3_propose(req: ProposeRequest) -> dict:
         prop_path = _lt["path"]
     guard = _transistor_guard(prop_path)
     if guard is not None:
+        _log_modeB_result(req.session_id, req.filename,
+                          {"mode": "unsupported"})
         return {**guard, "proposals": [], "rejected": [], "notes": []}
     try:
         result = proposer.propose_rows(prop_path, model=req.model)
@@ -154,18 +159,22 @@ def l3_propose(req: ProposeRequest) -> dict:
                         "coach limitation, not proof your tests are "
                         "complete. Today's Coverage Coach use was refunded.")
             result.setdefault("notes", []).append(note)
+    _log_modeB_result(req.session_id, req.filename, {
+        "mode": "analysis" if result.get("ok", True) else "error",
+        "proposals": len(result.get("proposals") or []),
+        "refunded": bool(result.get("refunded")),
+        "model": result.get("model"),
+    })
+    return result
+
+
+def _log_modeB_result(session_id: str, filename: str, props: dict) -> None:
     try:
         from dlc.telemetry.sink import log_events
-        log_events(req.session_id, [{
-            "kind": "l3_modeB_result_server",
-            "filename": req.filename,
-            "proposals": len(result.get("proposals") or []),
-            "refunded": bool(result.get("refunded")),
-            "model": result.get("model"),
-        }])
+        log_events(session_id, [{"kind": "l3_modeB_result_server",
+                                 "filename": filename, **props}])
     except Exception:
         pass
-    return result
 
 
 class InjectRequest(BaseModel):
@@ -376,7 +385,9 @@ def llm_debug(req: DebugRequest) -> dict:
     target = server._resolve_target(req.session_id, req.filename)
     guard = _transistor_guard(target["path"])
     if guard is not None:
-        return {**guard, "mode": "unsupported", "cards": []}
+        result = {**guard, "mode": "unsupported", "cards": []}
+        _log_modeA_result(req.session_id, req.filename, result)
+        return result
 
     path, spec_name, on_temp = target["path"], None, False
     coach_rows = None
@@ -394,13 +405,16 @@ def llm_debug(req: DebugRequest) -> dict:
         return result
 
     if not limits.allowed("modeA"):
-        return {
+        result = {
             "ok": False,
             "limited": True,
             "warning": "Daily debug-analysis limit reached — try again "
                        "tomorrow.",
             "limits": limits.state(),
         }
+        _log_modeA_result(req.session_id, req.filename,
+                          {**result, "mode": "limited", "cards": []})
+        return result
 
     inj_temp, inj_notes = (None, [])
     if not on_temp:
@@ -431,8 +445,32 @@ def llm_debug(req: DebugRequest) -> dict:
     result["limits"] = limits.consume("modeA") if consumed else limits.state()
     result["consumed_use"] = consumed
     result["on_coach_temp"] = on_temp
+    _remember_marks(req.filename, target["path"], result)
     _log_modeA_result(req.session_id, req.filename, result)
     return result
+
+
+def _remember_marks(filename: str, path: str, result: dict) -> None:
+    if result.get("mode") != "analysis":
+        return
+    try:
+        from dlc.parser.dig_parser import parse_dig_file
+        from dlc.parser.netlist import build_netlist
+        from dlc.web import server
+        c = parse_dig_file(path)
+        nl = build_netlist(c)
+        s_keys, s_pins = server._component_marks(
+            c, nl, result.get("suspect_indices") or [])
+        card_idx = [op.get("component_index")
+                    for card in (result.get("cards") or [])
+                    for op in ((card.get("fix") or {}).get("ops") or [])
+                    if isinstance(op.get("component_index"), int)]
+        c_keys, c_pins = server._component_marks(c, nl, card_idx)
+        server._LAST_SUSPECTS[filename] = {
+            "suspects": s_keys, "suspect_pins": s_pins,
+            "cards": c_keys, "card_pins": c_pins}
+    except Exception:
+        pass
 
 
 class AcceptFixRequest(BaseModel):

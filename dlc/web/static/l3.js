@@ -15,12 +15,23 @@ function l3Slot(filename) {
 }
 
 function l3ExpireAll(reason) {
-  const had = Object.values(l3Store).some(
-    (s) => s && (s.modeA || s.modeB || (s.cards || []).length),
-  );
+  const files = Object.entries(l3Store)
+    .filter(([, s]) => s && (s.modeA || s.modeB || (s.cards || []).length))
+    .map(([name]) => name);
   l3Store = {};
   l3GraphFilename = null;
-  if (had && reason === "re-upload") logEvent("l3_circuit_re_uploaded", {});
+  if (files.length && reason === "re-upload") {
+    logEvent("l3_circuit_re_uploaded", { files });
+  }
+}
+
+// One event per file per lock state.
+const l3LockedLogged = new Set();
+function l3LogLocked(filename, reason, errors) {
+  const key = `${filename}|${reason}|${errors}`;
+  if (l3LockedLogged.has(key)) return;
+  l3LockedLogged.add(key);
+  logEvent("l3_locked", { filename, reason, errors });
 }
 
 function l3Busy() {
@@ -278,12 +289,14 @@ function renderL3Boards(file) {
   }
   if (file.error) {
     const s = { status: "This file failed to parse — fix it on the Dashboard.", cls: "blocked" };
+    l3LogLocked(file.filename, "parse_failed", null);
     _l3PaintBoard("a", s);
     _l3PaintBoard("b", s);
     return;
   }
   const nErr = fileL1Errors(file).length;
   if (nErr > 0) {
+    l3LogLocked(file.filename, "l1_errors", nErr);
     const s = {
       locked: true,
       cls: "blocked",

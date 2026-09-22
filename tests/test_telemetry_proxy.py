@@ -378,10 +378,13 @@ def test_debugger_tags_modeA_feature(tele_env):
             "usage": {"input_tokens": 1, "output_tokens": 1},
             "model": "fake"}
     from dlc.l3.debugger import debug_circuit
-    debug_circuit("data/sample_circuits/30_bug_benchmark/bug3_wrong_cin/"
-                  "Wrong_cin.dig", call=call, use_manifest=False,
-                  failing_indices=[0, 1])
+    res = debug_circuit("data/sample_circuits/30_bug_benchmark/bug3_wrong_cin/"
+                        "Wrong_cin.dig", call=call, use_manifest=False,
+                        failing_indices=[0, 1])
     assert seen.get("feature") == "modeA"
+    # the deterministic suspects ride along so a re-upload can be compared
+    assert res["mode"] == "analysis"
+    assert isinstance(res["suspect_indices"], list) and res["suspect_indices"]
 
 def test_global_capacity_breaker_across_machines(tele_env, monkeypatch):
     monkeypatch.setenv("DLC_GLOBAL_DAILY_CALLS", "2")
@@ -611,6 +614,28 @@ def test_admin_stats_windows_and_l3_outcomes(tele_env, monkeypatch):
             {"client_row_id": 3, "kind": "l3_modeA_result_server",
              "props": {"filename": "b.dig", "cards": 0,
                        "confirmed": False, "llm_calls": 1}},
+            {"client_row_id": 6, "kind": "l3_modeA_result_server",
+             "props": {"filename": "c.dig", "mode": "rom_mismatch",
+                       "cards": 0, "confirmed": 0, "llm_calls": 0}},
+            {"client_row_id": 7, "kind": "l1_result",
+             "props": {"filename": "a.dig", "errors": 2, "warnings": 1,
+                       "kinds": ["width_mismatch"], "unsupported": False,
+                       "failed": False, "testcase_rows": 8}},
+            {"client_row_id": 8, "kind": "l1_result",
+             "props": {"filename": "b.dig", "errors": 0, "warnings": 0,
+                       "kinds": [], "unsupported": True, "failed": False,
+                       "testcase_rows": 4}},
+            {"client_row_id": 9, "kind": "tests_run_complete",
+             "props": {"filename": "a.dig", "mode": "per_row", "ok": True,
+                       "all_passed": False, "failing_rows": 3,
+                       "total_rows": 8}},
+            {"client_row_id": 10, "kind": "reupload_diff",
+             "props": {"filename": "a.dig", "comps_changed": 1,
+                       "wires_changed": 0, "had_suspects": True,
+                       "touched_suspect": True}},
+            {"client_row_id": 11, "kind": "l3_locked",
+             "props": {"filename": "b.dig", "reason": "l1_errors",
+                       "errors": 2}},
             {"client_row_id": 4, "kind": "l3_modeB_result_server",
              "props": {"filename": "a.dig", "proposals": 3}},
             {"client_row_id": 5, "kind": "l3_accept_fix_server",
@@ -627,11 +652,18 @@ def test_admin_stats_windows_and_l3_outcomes(tele_env, monkeypatch):
     d = pc.get("/admin/stats", headers=hdr).json()
     assert d["range_days"] == 7 and d["since"] <= d["active_by_day"][0]["day"]
     t = d["totals"]
-    assert t["active_machines"] == 2 and t["events"] == 6
+    assert t["active_machines"] == 2 and t["events"] == 12
+    assert d["l1"] == {"files": 2, "with_errors": 1, "unsupported": 1,
+                       "failed": 0, "avg_test_rows": 6.0}
+    assert d["tests"] == {"runs": 1, "all_passed": 0,
+                          "avg_failing_rows": 3.0}
     assert t["llm_calls"] == 2 and t["ok_calls"] == 2
     assert t["est_usd"] >= 0
     l3 = d["l3"]
     assert l3["modeA_runs"] == 2 and l3["modeA_confirmed"] == 1
+    assert l3["modeA_refused"] == {"rom_mismatch": 1, "l1_locked": 1}
+    assert l3["hint_targeting"] == {"reuploads": 1, "touched_suspect": 1,
+                                    "touched_card": 0}
     assert l3["modeA_cards"] == 2
     assert l3["modeB_runs"] == 1 and l3["fixes_accepted"] == 1
     feats = {f["feature"]: f for f in d["by_feature"]}
@@ -641,7 +673,7 @@ def test_admin_stats_windows_and_l3_outcomes(tele_env, monkeypatch):
                for k in d["top_kinds"])
     d30 = pc.get("/admin/stats", headers=hdr,
                  params={"range_days": 30}).json()
-    assert d30["range_days"] == 30 and d30["totals"]["events"] == 6
+    assert d30["range_days"] == 30 and d30["totals"]["events"] == 12
     assert pc.get("/admin/stats", headers=hdr,
                   params={"range_days": 0}).status_code == 422
 
