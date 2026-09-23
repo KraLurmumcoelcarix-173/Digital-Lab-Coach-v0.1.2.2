@@ -1,0 +1,138 @@
+# The course proxy on OpenShift (Carolina CloudApps). One pod, one persistent
+# volume for the SQLite ledger, an HTTPS route. Apply from a project you own:
+#
+#     oc new-project dlc-311                     # once
+#     oc create secret generic dlc-proxy-secrets \
+#         --from-literal=ANTHROPIC_API_KEY=sk-ant-... \
+#         --from-literal=DLC_COURSE_TOKEN=course-... \
+#         --from-literal=DLC_ADMIN_TOKEN=admin-...
+#     oc apply -f proxy/openshift/dlc-proxy.yaml
+#     oc start-build dlc-proxy --follow          # builds proxy/Dockerfile from GitHub
+#     oc get route dlc-proxy                     # the URL students paste (https://...)
+#
+# The secret is created by hand on purpose: no token ever sits in a file.
+apiVersion: v1
+kind: List
+items:
+
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    name: dlc-proxy
+
+- apiVersion: build.openshift.io/v1
+  kind: BuildConfig
+  metadata:
+    name: dlc-proxy
+  spec:
+    source:
+      type: Git
+      git:
+        uri: https://github.com/KraLurmumcoelcarix-173/Digital-Lab-Coach-v0.1.2.2.git
+        ref: master
+    strategy:
+      type: Docker
+      dockerStrategy:
+        dockerfilePath: proxy/Dockerfile
+    output:
+      to:
+        kind: ImageStreamTag
+        name: dlc-proxy:latest
+    triggers:
+    - type: ConfigChange
+
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: dlc-proxy-data
+  spec:
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 1Gi
+
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: dlc-proxy
+    annotations:
+      # follow the ImageStream: every finished build rolls the pod
+      image.openshift.io/triggers: >-
+        [{"from":{"kind":"ImageStreamTag","name":"dlc-proxy:latest"},
+          "fieldPath":"spec.template.spec.containers[?(@.name==\"proxy\")].image"}]
+  spec:
+    replicas: 1
+    strategy:
+      type: Recreate
+    selector:
+      matchLabels:
+        app: dlc-proxy
+    template:
+      metadata:
+        labels:
+          app: dlc-proxy
+      spec:
+        containers:
+        - name: proxy
+          image: dlc-proxy:latest
+          ports:
+          - containerPort: 8080
+          envFrom:
+          - secretRef:
+              name: dlc-proxy-secrets
+          env:
+          - name: DLC_PROXY_DB
+            value: /data/dlc_proxy.db
+          - name: PORT
+            value: "8080"
+          volumeMounts:
+          - name: data
+            mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+        volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: dlc-proxy-data
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: dlc-proxy
+  spec:
+    selector:
+      app: dlc-proxy
+    ports:
+    - port: 8080
+      targetPort: 8080
+
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: dlc-proxy
+  spec:
+    to:
+      kind: Service
+      name: dlc-proxy
+    port:
+      targetPort: 8080
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
