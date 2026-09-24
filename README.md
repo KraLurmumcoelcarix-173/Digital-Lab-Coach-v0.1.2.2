@@ -210,6 +210,7 @@ and the shape of edits between uploads. Raw exports:
 `/admin/export.csv?table=events|machines|llm_calls`.
 
 ![Course dashboard](docs/screenshots/admin_dashboard.png)
+![Course dashboard](docs/screenshots/admin_dashboard2.png)
 
 ### Rotating the course token
 
