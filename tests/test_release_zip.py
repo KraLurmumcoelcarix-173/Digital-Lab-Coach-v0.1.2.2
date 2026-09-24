@@ -32,8 +32,11 @@ def test_release_zip_contents(tmp_path):
                 ".pytest_cache", ".pyc"):
         assert not any(bad in n for n in names), f"shipped {bad}"
 
-    sh = next(i for i in z.infolist() if i.filename.endswith("/start.sh"))
-    assert (sh.external_attr >> 16) & 0o111, "start.sh lost its exec bit"
+    for launcher in ("/start.sh", "/uninstall.sh"):
+        sh = next(i for i in z.infolist() if i.filename.endswith(launcher))
+        assert (sh.external_attr >> 16) & 0o111, f"{launcher} lost its exec bit"
+        assert sh.create_system == 3, \
+            f"{launcher} is stamped as made on Windows: macOS would drop its exec bit"
     for n in names:
         if n.endswith(".sh"):
             assert b"\r" not in z.read(n), f"{n} would fail on macOS (CRLF)"
@@ -59,6 +62,25 @@ def test_release_zip_fixes_line_endings_from_a_windows_checkout(tmp_path):
     png = tmp_path / "a.png"
     png.write_bytes(b"\x89PNG\r\n\x1a\n")
     assert mod._payload(png) == b"\x89PNG\r\n\x1a\n"
+
+
+def test_release_zip_exec_bit_survives_a_windows_build(tmp_path, monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "make_release_zip", ROOT / "scripts" / "make_release_zip.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    root = tmp_path / "fork"
+    root.mkdir()
+    (root / "pyproject.toml").write_text('version = "9.9.9"\n')
+    (root / "start.sh").write_text("#!/usr/bin/env bash\necho hi\n")
+    (root / "uninstall.sh").write_text("#!/usr/bin/env bash\necho bye\n")
+    monkeypatch.setattr(sys, "platform", "win32")      # what ZipInfo looks at
+    out = mod.build(root, tmp_path / "dist")
+    for info in zipfile.ZipFile(out).infolist():
+        assert info.create_system == 3, info.filename
+        if info.filename.endswith(".sh"):
+            assert (info.external_attr >> 16) & 0o111, info.filename
 
 
 def test_release_zip_never_ships_a_ledger_or_a_secrets_file():

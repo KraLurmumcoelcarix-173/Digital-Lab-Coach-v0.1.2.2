@@ -82,6 +82,7 @@ def build(root: Path, out_dir: Path) -> Path:
             info.compress_type = zipfile.ZIP_DEFLATED
             mode = 0o755 if p.suffix == ".sh" else 0o644
             info.external_attr = mode << 16
+            info.create_system = 3
             z.writestr(info, _payload(p))
     print(f"wrote {out}  ({out.stat().st_size / 1e6:.1f} MB, "
           f"{len(files)} files, top folder {prefix})")
