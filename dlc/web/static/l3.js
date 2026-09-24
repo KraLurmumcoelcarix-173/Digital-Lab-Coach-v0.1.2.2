@@ -1142,6 +1142,7 @@ async function l3AcceptClick() {
     } catch (err) {
       out = { ok: false, warning: `Network error: ${err}` };
     }
+    let shape = null;
     if (out.ok) {
       const cov = (mb.report.circuits || []).find((c) => c.file === g.file);
       const sp = cov && (cov.specs || []).find((s) => s.name === g.spec_name);
@@ -1150,8 +1151,17 @@ async function l3AcceptClick() {
       out._rom_words = (g.program_words && g.program_words.length)
         ? g.program_words : null;
       out._append = !!out._rom_words
-      const failedAdded = (out.rows || [])
-        .filter((r) => r.added && r.status === "failed").length;
+      const addedRows = (out.rows || []).filter((r) => r.added);
+      const disputedSet = new Set(g.disputed_rows || []);
+      let failedAdded = 0, failedDisputed = 0;
+      addedRows.forEach((r, i) => {
+        if (r.status !== "failed") return;
+        failedAdded += 1;
+        if (disputedSet.has(i)) failedDisputed += 1;
+      });
+      shape = { added: addedRows.length, failed: failedAdded,
+                disputed: disputedSet.size, disputed_failed: failedDisputed,
+                clean_failed: failedAdded - failedDisputed };
       mb.injectFailing += failedAdded;
       if (g.file === file.filename) mb.tempName = out.temp_filename;
       if (out.outcome !== "all_set") allSet = false;
@@ -1160,7 +1170,7 @@ async function l3AcceptClick() {
     }
     mb.inject[g.file] = out;
     logEvent("l3_modeB_inject_outcome", {
-      file: g.file, outcome: out.outcome || "error",
+      file: g.file, outcome: out.outcome || "error", ...(shape || {}),
     });
   }
   mb.accepting = false;

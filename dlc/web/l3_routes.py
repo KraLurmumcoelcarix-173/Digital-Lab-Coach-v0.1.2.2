@@ -164,8 +164,25 @@ def l3_propose(req: ProposeRequest) -> dict:
         "proposals": len(result.get("proposals") or []),
         "refunded": bool(result.get("refunded")),
         "model": result.get("model"),
+        **_modeB_shape(result),
     })
     return result
+
+
+def _modeB_shape(result: dict) -> dict:
+    groups = result.get("proposals") or []
+    rejected = result.get("rejected") or []
+    kinds: dict[str, int] = {}
+    for r in rejected:
+        k = str(r.get("kind") or "format")
+        kinds[k] = kinds.get(k, 0) + len(r.get("rows") or [])
+    return {
+        "rows": sum(len(g.get("rows") or []) for g in groups),
+        "disputed": sum(len(g.get("disputed_rows") or []) for g in groups),
+        "rejected": sum(len(r.get("rows") or []) for r in rejected),
+        "rejected_kinds": kinds,
+        "covered": bool(result.get("all_categories_covered")),
+    }
 
 
 def _log_modeB_result(session_id: str, filename: str, props: dict) -> None:

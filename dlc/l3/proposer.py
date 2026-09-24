@@ -759,6 +759,7 @@ def _replay_gate(valid, rejected, notes, targets, paths):
     by_file = {t["file"]: t for t in targets}
     kept: list[dict] = []
     n_disputed = 0
+    ahead: dict[str, list[str]] = {}
     for g in valid:
         t = by_file.get(g["file"])
         path = paths.get(g["file"])
@@ -770,24 +771,30 @@ def _replay_gate(valid, rejected, notes, targets, paths):
         splice = ({"insert_at": g["insert_at"],
                    "insert_before_row": g.get("insert_before_row")}
                   if g.get("insert_at") is not None else {})
+        prior = ([] if g.get("program_words")
+                 else list(ahead.get(g["file"], [])))
+        run_rows = prior + list(g["rows"])
         try:
             if ref_file is not None and ref_file.is_file():
                 try:
                     verdicts = replay_appended_rows(
-                        str(ref_file), g["spec_name"], g["rows"],
+                        str(ref_file), g["spec_name"], run_rows,
                         g.get("program_words"), **splice)
                     on_reference = True
                 except Exception:
                     verdicts = replay_appended_rows(
-                        path, g["spec_name"], g["rows"],
+                        path, g["spec_name"], run_rows,
                         g.get("program_words"), **splice)
             else:
                 verdicts = replay_appended_rows(
-                    path, g["spec_name"], g["rows"], g.get("program_words"),
+                    path, g["spec_name"], run_rows, g.get("program_words"),
                     **splice)
         except Exception:
             kept.append(g)
+            if not g.get("program_words"):
+                ahead.setdefault(g["file"], []).extend(g["rows"])
             continue
+        verdicts = verdicts[len(prior):]
 
         if not on_reference:
             marks = sorted(i for i, v in enumerate(verdicts)
@@ -801,6 +808,8 @@ def _replay_gate(valid, rejected, notes, targets, paths):
                          **{str(i): verdicts[i]["detail"] for i in marks}}}
                 n_disputed += len(marks)
             kept.append(g)
+            if not g.get("program_words"):
+                ahead.setdefault(g["file"], []).extend(g["rows"])
             continue
 
         if g.get("program_words"):
@@ -841,6 +850,7 @@ def _replay_gate(valid, rejected, notes, targets, paths):
             good.append(v["row"])
         if good:
             kept.append({**g, "rows": good})
+            ahead.setdefault(g["file"], []).extend(good)
     if n_disputed:
         notes.append(
             f"your circuit disagrees with {n_disputed} proposed row(s) at "
@@ -971,7 +981,8 @@ def _selfcheck_gate(valid, rejected, notes, targets, call, used_model):
     for gi, g in enumerate(valid):
         marks = sorted(ri for (gj, ri) in drop if gj == gi)
         if marks:
-            g["disputed_rows"] = marks
+            g["disputed_rows"] = sorted(
+                set(g.get("disputed_rows") or []) | set(marks))
             n_disputed += len(marks)
     notes.append(
         f"self-check could not independently confirm {n_disputed} row(s) — "

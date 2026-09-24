@@ -601,6 +601,42 @@ def test_replay_gate_disputes_case3_rows_on_the_buggy_led():
     assert "your circuit computes" in kept[0]["disputed_details"]["0"]
 
 
+_LED = "data/sample_circuits/tier3_realistic/tier3_latched_display.dig"
+
+
+def test_replay_gate_replays_groups_of_one_file_in_accept_order(tmp_path):
+    import re
+    from pathlib import Path
+    from dlc.parser.dig_parser import parse_dig_file
+    from dlc.testing.spec import extract_test_specs
+    src = Path(_LED).read_text(encoding="utf-8")
+    m = re.search(r"(<dataString>)(.*?)(</dataString>)", src, re.S)
+    lines = [ln for ln in m.group(2).split("\n")
+             if ln.strip() and not ln.strip().startswith("#")]
+    p = tmp_path / "tier3_latched_display.dig"
+    p.write_text(src[:m.start(2)] + "\n".join(lines[:2]) + src[m.end(2):],
+                 encoding="utf-8")                     # header + first row only
+    spec = extract_test_specs(parse_dig_file(str(p)))[0]
+    t = {"file": p.name, "spec_name": spec.name,
+         "headers": list(spec.headers), "inputs": [], "outputs": [],
+         "existing_rows": [], "existing_rows_omitted": 0,
+         "has_clock": True, "clock_col": "Clock", "has_program_rom": False}
+    load3 = "0 0 1 1 1 C 1 1 1 1 0 0 1"        # load=1: the display takes '3'
+    hold0 = "1 0 1 0 0 C 1 1 1 1 1 1 0"        # load=0: only right while it still shows '0'
+    paths = {p.name: str(p)}
+    valid = [{"file": p.name, "spec_name": spec.name, "rows": [load3], "why": "w"},
+             {"file": p.name, "spec_name": spec.name, "rows": [hold0], "why": "w"}]
+    kept, rejected, notes = proposer._replay_gate(valid, [], [], [t], paths)
+    assert rejected == [] and len(kept) == 2
+    assert kept[0].get("disputed_rows", []) == []
+    assert kept[1]["disputed_rows"] == [0]            # judged after group 1, as Accept runs it
+    assert "your circuit computes" in kept[1]["disputed_details"]["0"]
+    assert any("DISPUTED" in n for n in notes)
+    # the same hold row alone is clean: the accept order is what changed it
+    alone, _, _ = proposer._replay_gate([valid[1]], [], [], [t], paths)
+    assert alone[0].get("disputed_rows", []) == []
+
+
 def test_propose_model_default_and_override(monkeypatch):
     monkeypatch.delenv("DLC_L3_PROPOSE_MODEL", raising=False)
     assert proposer._propose_model() == proposer._PROPOSE_MODEL_FALLBACK

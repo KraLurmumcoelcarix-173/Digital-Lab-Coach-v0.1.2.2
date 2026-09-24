@@ -637,7 +637,16 @@ def test_admin_stats_windows_and_l3_outcomes(tele_env, monkeypatch):
              "props": {"filename": "b.dig", "reason": "l1_errors",
                        "errors": 2}},
             {"client_row_id": 4, "kind": "l3_modeB_result_server",
-             "props": {"filename": "a.dig", "proposals": 3}},
+             "props": {"filename": "a.dig", "proposals": 3, "rows": 5,
+                       "disputed": 2, "rejected": 1,
+                       "rejected_kinds": {"duplicate": 1},
+                       "covered": False}},
+            {"client_row_id": 12, "kind": "l3_modeB_inject_outcome",
+             "props": {"file": "a.dig", "outcome": "rows_fail", "added": 5,
+                       "failed": 2, "disputed": 2, "disputed_failed": 1,
+                       "clean_failed": 1}},
+            {"client_row_id": 13, "kind": "l3_modeB_adopted_official",
+             "props": {"file": "a.dig", "rows": 9}},
             {"client_row_id": 5, "kind": "l3_accept_fix_server",
              "props": {"filename": "a.dig"}}]})
     pc.post("/v1/events", json={
@@ -652,7 +661,7 @@ def test_admin_stats_windows_and_l3_outcomes(tele_env, monkeypatch):
     d = pc.get("/admin/stats", headers=hdr).json()
     assert d["range_days"] == 7 and d["since"] <= d["active_by_day"][0]["day"]
     t = d["totals"]
-    assert t["active_machines"] == 2 and t["events"] == 12
+    assert t["active_machines"] == 2 and t["events"] == 14
     assert d["l1"] == {"files": 2, "with_errors": 1, "unsupported": 1,
                        "failed": 0, "avg_test_rows": 6.0}
     assert d["tests"] == {"runs": 1, "all_passed": 0,
@@ -666,6 +675,10 @@ def test_admin_stats_windows_and_l3_outcomes(tele_env, monkeypatch):
                                     "touched_card": 0}
     assert l3["modeA_cards"] == 2
     assert l3["modeB_runs"] == 1 and l3["fixes_accepted"] == 1
+    assert l3["modeB"] == {"rows": 5, "disputed": 2, "rejected": 1,
+                           "covered": 0, "accepts": 1, "rows_accepted": 5,
+                           "rows_failed": 2, "clean_failed": 1,
+                           "adopted": 1, "adopted_rows": 9}
     feats = {f["feature"]: f for f in d["by_feature"]}
     assert feats["modeA"]["calls"] == 1 and feats["explain"]["calls"] == 1
     assert d["active_by_day"][0]["machines"] == 2
@@ -673,7 +686,7 @@ def test_admin_stats_windows_and_l3_outcomes(tele_env, monkeypatch):
                for k in d["top_kinds"])
     d30 = pc.get("/admin/stats", headers=hdr,
                  params={"range_days": 30}).json()
-    assert d30["range_days"] == 30 and d30["totals"]["events"] == 12
+    assert d30["range_days"] == 30 and d30["totals"]["events"] == 14
     assert pc.get("/admin/stats", headers=hdr,
                   params={"range_days": 0}).status_code == 422
 

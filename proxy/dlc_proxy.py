@@ -637,10 +637,32 @@ def admin_stats(token: str | None = Query(default=None),
                                       if t_fail_rows is not None else None)}
         hint = {"reuploads": h_re, "touched_suspect": int(h_suspect),
                 "touched_card": int(h_card)}
-        (b_runs,) = conn.execute(
-            f"SELECT COUNT(*) FROM events"
-            f" WHERE kind = 'l3_modeB_result_server' AND {ev_day} >= ?",
-            (since,)).fetchone()
+        (b_runs, b_rows, b_disp, b_rej, b_cov) = conn.execute(
+            f"SELECT COUNT(*),"
+            f" COALESCE(SUM(json_extract(props, '$.rows')), 0),"
+            f" COALESCE(SUM(json_extract(props, '$.disputed')), 0),"
+            f" COALESCE(SUM(json_extract(props, '$.rejected')), 0),"
+            f" COALESCE(SUM(json_extract(props, '$.covered') = 1), 0)"
+            f" FROM events WHERE kind = 'l3_modeB_result_server'"
+            f" AND {ev_day} >= ?", (since,)).fetchone()
+        (b_acc, b_added, b_failed, b_clean_failed) = conn.execute(
+            f"SELECT COUNT(*),"
+            f" COALESCE(SUM(json_extract(props, '$.added')), 0),"
+            f" COALESCE(SUM(json_extract(props, '$.failed')), 0),"
+            f" COALESCE(SUM(json_extract(props, '$.clean_failed')), 0)"
+            f" FROM events WHERE kind = 'l3_modeB_inject_outcome'"
+            f" AND {ev_day} >= ?", (since,)).fetchone()
+        (b_adopt, b_adopt_rows) = conn.execute(
+            f"SELECT COUNT(*),"
+            f" COALESCE(SUM(json_extract(props, '$.rows')), 0)"
+            f" FROM events WHERE kind = 'l3_modeB_adopted_official'"
+            f" AND {ev_day} >= ?", (since,)).fetchone()
+        modeB = {"rows": int(b_rows or 0), "disputed": int(b_disp or 0),
+                 "rejected": int(b_rej or 0), "covered": int(b_cov or 0),
+                 "accepts": b_acc, "rows_accepted": int(b_added or 0),
+                 "rows_failed": int(b_failed or 0),
+                 "clean_failed": int(b_clean_failed or 0),
+                 "adopted": b_adopt, "adopted_rows": int(b_adopt_rows or 0)}
         (accepts,) = conn.execute(
             f"SELECT COUNT(*) FROM events"
             f" WHERE kind = 'l3_accept_fix_server' AND {ev_day} >= ?",
@@ -676,7 +698,8 @@ def admin_stats(token: str | None = Query(default=None),
                        "modeA_cards": int(a_cards or 0),
                        "modeA_refused": a_refused,
                        "hint_targeting": hint,
-                       "modeB_runs": b_runs, "fixes_accepted": accepts},
+                       "modeB_runs": b_runs, "modeB": modeB,
+                       "fixes_accepted": accepts},
                 "spend_by_day": [
                     {"day": d, "est_usd": round(v, 2),
                      "calls": calls_by_day.get(d, 0)}
@@ -899,7 +922,8 @@ function kv(props){
 }
 function describe(kind,p){
   p=p||{};
-  const f=p.filename?`<code class="mid">${esc(p.filename)}</code>`:"";
+  const fname=p.filename||p.file;
+  const f=fname?`<code class="mid">${esc(fname)}</code>`:"";
   switch(kind){
     case "app_start": return `app started (v${esc(p.version||"?")})`;
     case "upload": return `uploaded ${p.count??"?"} file(s)`;
@@ -943,7 +967,20 @@ function describe(kind,p){
     case "l3_modeB_result_server":{
       const why={limited:"refused: daily cap",unsupported:"refused: unsupported circuit",error:"error"}[p.mode];
       if(why)return `Coverage Coach on ${f}: ${why}`;
-      return `Coverage Coach on ${f}: ${p.proposals??0} proposal(s)${p.refunded?", use refunded":""}`;}
+      if(p.covered)return `Coverage Coach on ${f}: every category already covered, nothing to add${p.refunded?", use refunded":""}`;
+      const shape=p.rows!=null
+        ?`, ${p.rows} row(s)${p.disputed?`, ${p.disputed} disputed`:""}${p.rejected?`, ${p.rejected} rejected by the gates`:""}`
+        :"";
+      return `Coverage Coach on ${f}: ${p.proposals??0} proposal(s)${shape}${p.refunded?", use refunded":""}`;}
+    case "l3_modeB_inject_outcome":{
+      const n=p.added!=null
+        ?`, ${p.failed??0} of ${p.added} row(s) failed${p.clean_failed?` (${p.clean_failed} not flagged as disputed)`:""}`
+        :"";
+      return `student ACCEPTED coach rows on ${f}: ${esc(p.outcome||"?")}${n}`;}
+    case "l3_modeB_adopted_official":
+      return `adopted the coach rows into the official tests for ${f}${p.rows!=null?` (${p.rows} rows total)`:""}`;
+    case "l3_modeB_discard_failing":
+      return `discarded the failing coach rows on ${f}${p.kept!=null?`, kept ${p.kept}`:""}`;
     case "l3_accept_fix_server":
     case "l3_fix_accepted": return `student ACCEPTED a fix ${f?("on "+f):""}`;
     case "l3_fix_animation_played": return "fix walkthrough animation played";
@@ -1123,14 +1160,19 @@ async function loadStats(){
   const refTotal=Object.values(ref).reduce((a,b)=>a+b,0);
   const refDetail=Object.entries(ref).map(([k,v])=>`${esc(k)} ${v}`).join(", ");
   const h=l3.hint_targeting||{};
+  const b=l3.modeB||{};
   $("st-l3").innerHTML=[
     [l3.modeA_runs,"Mode A analyses"],
     [`${l3.modeA_confirmed} (${confPct}%)`,"confirmed fixes"],
     [l3.modeA_cards,"fix cards shown"],
     [refTotal,"Mode A refused"+(refDetail?` (${refDetail})`:"")],
     [`${h.touched_suspect??0} / ${h.reuploads??0}`,"re-uploads whose edit hit a named suspect"],
-    [l3.modeB_runs,"Mode B runs"],
     [l3.fixes_accepted,"fixes accepted"],
+    [`${l3.modeB_runs}${b.covered?` (${b.covered} already complete)`:""}`,"Mode B runs"],
+    [`${b.rows??0} (${b.disputed??0} disputed)`,"coach rows delivered"],
+    [b.rejected??0,"coach rows rejected by the gates"],
+    [`${b.rows_failed??0} / ${b.rows_accepted??0}`,"accepted coach rows that failed"+(b.clean_failed?` (${b.clean_failed} not flagged)`:"")],
+    [`${b.adopted_rows??0} in ${b.adopted??0}`,"coach rows adopted into official tests"],
   ].map(([v,l])=>`<div class="tile"><b>${v}</b><span>${l}</span></div>`).join("");
   $("st-feat").innerHTML=table(d.by_feature.map(f=>({...f,
     est_usd:"$"+f.est_usd})),
