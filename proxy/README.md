@@ -16,27 +16,37 @@ One small server the instructor runs. It does three jobs:
 
 ## Run it
 
-The per-OS commands, the address students paste, and the checks to run
-before class are in the instructor guide,
-[../docs/RELEASE_GUIDE.md](../docs/RELEASE_GUIDE.md) §3. The short form:
-four variables in one terminal window, then
+Two ways, both in the instructor guide
+[../docs/RELEASE_GUIDE.md](../docs/RELEASE_GUIDE.md):
 
-```bash
-uv run uvicorn proxy.dlc_proxy:app --host 0.0.0.0 --port 8321
-```
+- **On your own laptop** (§3, Option A): four variables in one terminal
+  window, then
+  ```bash
+  uv run uvicorn proxy.dlc_proxy:app --host 0.0.0.0 --port 8321
+  ```
+- **On Carolina CloudApps / any OpenShift cluster** (§4, Option B): the
+  console builds `Dockerfile` in this folder straight from your GitHub
+  fork, the three variables live in one Secret, the ledger on a 1 GiB
+  volume mounted at `/data`, and students get an HTTPS URL that works from
+  anywhere. `openshift/dlc-proxy.yaml` is the same setup for the `oc`
+  command line. The image builds from the repo root
+  (`docker build -f proxy/Dockerfile .`), listens on `$PORT` (8080) and
+  runs as a non-root user.
 
 | Variable | Meaning |
 |---|---|
 | `ANTHROPIC_API_KEY` | the key the relay uses; no endpoint ever returns it |
 | `DLC_COURSE_TOKEN` | what students paste. Unset, the proxy refuses every `/v1/llm` and `/v1/events` request (503) |
 | `DLC_ADMIN_TOKEN` | opens `/admin/*`. Unset, every admin request is refused |
-| `DLC_PROXY_DB` | the SQLite ledger (default `./dlc_proxy.db`); keep it outside the repo |
+| `DLC_PROXY_DB` | the SQLite ledger (default `./dlc_proxy.db`; the container sets `/data/dlc_proxy.db`); keep it outside the repo |
 
 `GET /v1/health` reports `course_token_set`, `admin_token_set`,
 `key_configured` and `key_format_ok`; all four must read `true` before
-class. Students paste `http://<proxy machine's LAN address>:8321` (or your
-HTTPS URL) plus the course token under Settings → Course server; the tool
-stores them in `~/.dlc/config.json` as `proxy_url` / `proxy_token`.
+class. Students paste the course server URL -
+`http://<proxy machine's LAN address>:8321` under Option A,
+`https://dlc-proxy-<project>.apps.cloudapps.unc.edu` under Option B - plus
+the course token under Settings → Course server; the tool stores them in
+`~/.dlc/config.json` as `proxy_url` / `proxy_token`.
 
 ## Endpoints
 
@@ -55,10 +65,17 @@ stores them in `~/.dlc/config.json` as `proxy_url` / `proxy_token`.
   `DLC_GLOBAL_DAILY_CALLS` (600) and `DLC_GLOBAL_DAILY_USD` (20) in the
   environment. The README's *Changing the limits* section shows all three
   layers side by side.
-- Storage is one SQLite file — back it up by copying it. The release zip
-  never includes `.db` files, but keep the ledger outside the repo anyway.
-- HTTPS: for a real semester put the proxy behind campus HTTPS or a
-  reverse proxy (Try Caddy). Plain HTTP is fine for the second-computer smoke test.
-- Keep the repo on the proxy host up to date with your fork — the relay
-  reuses `dlc/llm/client.py` (same request shaping, timeouts, and
-  reasoning-model handling as the tool itself).
+- Storage is one SQLite file — back it up by copying it, or by the CSV
+  exports. Under Option B it sits on the volume, which survives restarts,
+  redeploys and rebuilds; only deleting the volume claim removes it. The
+  release zip never includes `.db` files, but keep the ledger outside the
+  repo anyway.
+- HTTPS: Option B gives it to you — the route terminates TLS at the
+  cluster edge with a valid certificate, so tokens never travel in the
+  clear. Plain HTTP is fine for the Option A second-computer smoke test on
+  a LAN.
+- Updating the proxy never touches the ledger: restart it on the laptop
+  (Option A) or push and *Start build* (Option B). The relay reuses
+  `dlc/llm/client.py` (same request shaping, timeouts, and reasoning-model
+  handling as the tool itself), so keep the deployed branch in step with
+  your fork.

@@ -84,16 +84,6 @@
       <pos x="320" y="380"/>
     </visualElement>
     <visualElement>
-      <elementName>Text</elementName>
-      <elementAttributes>
-        <entry>
-          <string>Description</string>
-          <string>CMOS NOR (4T)</string>
-        </entry>
-      </elementAttributes>
-      <pos x="340" y="260"/>
-    </visualElement>
-    <visualElement>
       <elementName>Testcase</elementName>
       <elementAttributes>
         <entry>
