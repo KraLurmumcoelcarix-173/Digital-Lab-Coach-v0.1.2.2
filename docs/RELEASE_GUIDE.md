@@ -18,7 +18,7 @@ Three pieces:
    a small server holding YOUR API key, with per-machine daily limits, 
    a whole-server daily circuit breaker, telemetry ingest, and the admin dashboard.
    It runs either on your own laptop ([Option A](#3-run-the-course-proxy-on-your-own-machine-option-a))
-   or on Carolina CloudApps ([Option B](#4-option-b--the-proxy-on-carolina-cloudapps-openshift)).
+   or on Carolina CloudApps ([Option B](#4-option-b-the-proxy-on-carolina-cloudapps-openshift)).
 
 3. **Two secrets**: the course token students paste once, and the
    admin token only you hold that opens the admin dashboard.
@@ -90,7 +90,7 @@ admin dashboard. Endpoint reference: [../proxy/README.md](../proxy/README.md).
 Option A means the proxy runs on your own laptop. It is right for a smoke
 test and for one section on the same network; the laptop has to stay awake,
 on the network, with the terminal window open, the whole time students work.
-For anything more, see [Option B](#4-option-b--the-proxy-on-carolina-cloudapps-openshift).
+For anything more, see [Option B](#4-option-b-the-proxy-on-carolina-cloudapps-openshift).
 
 ### 3.1 Start it
 
@@ -344,8 +344,7 @@ Deployment are missing or misnamed.
 
 Write on the course card: course server URL
 `https://dlc-proxy-<project>.apps.cloudapps.unc.edu` (no port, no path),
-dashboard = the same + `/admin/view`. Then the Option B version of the
-second-computer test, ten minutes:
+dashboard = the same + `/admin/view`.
 
 ### 4.6 Day to day
 
