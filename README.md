@@ -16,7 +16,8 @@ education and explore new means of interactive hardware design debugging.
 ![Dashboard view of mode A gif](docs/screenshots/modeA_sample.gif)
 
 ## Status
-v0.1.2.2 && 0.1.2.3 (2026/9/23) — Update Both proxy options' set up flow  
+v0.1.2.3 (2026/9/24) — The course proxy runs on Carolina CloudApps, admin page rewritten.  
+v0.1.2.2 (2026/9/23) — Option A (laptop + LAN) setup flow rewritten;
 v0.1.2.1 (2026/9/17) — Interface available in multi-language && a few small bug fixing.
 v0.1.2 (2026/9/10) — Mode A supports higher fixes with optimized latency and cost, signal flow walkthrough feature added in Layer 2.
 v0.1.1 (2026/8/24) — Supports 311 Digital transistor lab.
@@ -63,7 +64,8 @@ v0.1.0 (2026/8/23) — first packaged release.
    **`START_HERE.bat`** on Windows, or run **`./start.sh`** on
    macOS/Linux. The first run installs its own toolchain and takes a
    few minutes; your browser then opens the app at
-   `http://127.0.0.1:8765`.
+   `http://127.0.0.1:8765`. If macOS answers *permission denied*, run
+   `chmod +x start.sh uninstall.sh` once in that folder and try again.
 
 3. Open **Settings (gear icon, top right)**:
    - **Course server**: paste the **URL + course token** from your
@@ -141,10 +143,12 @@ The detailed version: [docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md):
 
 ### Tokens, proxy, and hosting
 
-Generating the two secrets, starting the proxy on your own laptop or on a
-server, finding the address students paste, and the checks to run before
-class are one runbook: [docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md)
-§2–§4. Use the built-in proxy only with IRB permission from your
+Generating the two secrets, running the proxy on your own laptop for one
+LAN (Option A) or on Carolina CloudApps for an HTTPS URL that works from
+anywhere (Option B), finding the address students paste, and the checks to
+run before class are one runbook: [docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md)
+§2–§4. Option B is a handful of console forms; the repo ships the container
+(`proxy/Dockerfile`) and the `oc` manifest (`proxy/openshift/`). Use the built-in proxy only with IRB permission from your
 department; without a data-collection study, adapt
 [`proxy/dlc_proxy.py`](proxy/dlc_proxy.py) to your classroom.
 
@@ -197,16 +201,22 @@ and splices any extension in  front of the loop since that program parks in a
 
 ### The admin dashboard
 
-Open `http://<LAN address>:8321/admin/view`, enter the admin token once:
- machines, per-day activity, per-day LLM usage and estimated spend, 
- breaker state. Raw exports: `/admin/export.csv?table=events|machines|llm_calls`.
+Open the course server URL + `/admin/view` (Option A
+`http://<LAN address>:8321/admin/view`, Option B
+`https://dlc-proxy-<project>.apps.cloudapps.unc.edu/admin/view`) and enter
+the admin token once: machines, per-day activity, per-day LLM usage and
+estimated spend, breaker state, Layer 1 verdicts, test runs, coach outcomes
+and the shape of edits between uploads. Raw exports:
+`/admin/export.csv?table=events|machines|llm_calls`.
 
 ![Course dashboard](docs/screenshots/admin_dashboard.png)
 
 ### Rotating the course token
 
-Generate a new course token, restart the proxy with it, announce it;
-students paste the new token under Settings → Course server.
+Generate a new course token, restart the proxy with it (Option A) or edit
+the Secret and restart the rollout (Option B), announce it; students paste
+the new token under Settings → Course server. History and limits are
+untouched.
 
 ### Where to change what
 
@@ -216,8 +226,8 @@ Restart the server (or the proxy) after changing any of these.
 | To change… | Edit / set |
 |---|---|
 | Daily caps, per-machine budgets, whole-class breaker | the three rows in [Changing the limits](#changing-the-limits) |
-| Course token / admin token | proxy env `DLC_COURSE_TOKEN`, `DLC_ADMIN_TOKEN` ([Rotating the course token](#rotating-the-course-token)) |
-| Where the proxy keeps its ledger | proxy env `DLC_PROXY_DB` (default `./dlc_proxy.db`) |
+| Course token / admin token | proxy env `DLC_COURSE_TOKEN`, `DLC_ADMIN_TOKEN`; under Option B the Secret `dlc-proxy-secrets` ([Rotating the course token](#rotating-the-course-token)) |
+| Where the proxy keeps its ledger | proxy env `DLC_PROXY_DB` (default `./dlc_proxy.db`; the container uses the volume at `/data/dlc_proxy.db`) |
 | Which model each Layer 3 mode uses | The picker on each Layer 3 board (Sonnet default or Opus, per run). The default behind "Sonnet (default)" comes from env DLC_L3_DEBUG_MODEL/DLC_L3_PROPOSE_MODEL, else the l3_debug_model/l3_propose_modelkeys in~/.dlc/config.json|
 | LLM call timeout | env `DLC_LLM_TIMEOUT` (seconds, default 180) |
 | Lecture list Layer 2 cites | `SYLLABUS_311` in [`dlc/llm/explain.py`](dlc/llm/explain.py) ([Adapting the course syllabus](#adapting-the-course-syllabus-layer-2-lecture-tags)) |
@@ -243,7 +253,7 @@ Restart the server (or the proxy) after changing any of these.
 | `dlc/l3/` | Layer 3: Mode A debugger (evidence, clustering, hypothesis verification) and Mode B coverage coach (manifests, program coach, row injection).
 | `dlc/llm/` | LLM client wrapper and versioned prompts for conceptual explanation + credibility grading (Layer 2) and strategic debugging (Layer 3).
 | `dlc/telemetry/` | Anonymous machine identity, per-interaction logging to a local SQLite spool, and the shipper that syncs it to the course proxy.
-| `proxy/` | The course proxy server an instructor deploys: API-key custody, per-machine daily limits (re-download-proof), global daily circuit breaker, telemetry ingest, admin dashboard/summary/export.
+| `proxy/` | The course proxy server an instructor deploys: API-key custody, per-machine daily limits (re-download-proof), global daily circuit breaker, telemetry ingest, admin dashboard/summary/export. `proxy/Dockerfile` and `proxy/openshift/` package it for Carolina CloudApps / OpenShift (Option B).
 | `dlc/cli/` | Command-line entrypoint that wires the layers together.
 | `prompts/` | Versioned LLM prompt templates - one file per prompt variant, consumed by `dlc/llm/`.
 | `data/manifests/` | One manifest per lab (`cpu.json`, `cpu_new.json`, …): categories, subcircuit roles and models, program decode.
