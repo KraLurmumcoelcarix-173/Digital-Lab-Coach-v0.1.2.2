@@ -2,16 +2,16 @@
 
 One small server the instructor runs. It does three jobs:
 
-1. **Key custody** — your Anthropic API key lives only here (env var).
+1. **Key custody**: your Anthropic API key lives only here (env var).
    Students' tools relay LLM calls through `/v1/llm`; 
 
-2. **Machine-keyed limits that survive re-downloads** — every install
+2. **Machine-keyed limits that survive re-downloads**: every install
    reports an anonymous id derived from the OS machine identifier. The
    proxy enforces per-day call budgets per feature (Mode A, Mode B,
    grading, explain) as the wipe-proof backstop behind the client's
    own per-analysis limits.
 
-3. **Telemetry ingest** — students' local event spools sync here. 
+3. **Telemetry ingest**: students' local event spools sync here. 
    `/admin/summary` shows machines, event counts and an LLM spend estimate.
 
 ## Run it
@@ -19,12 +19,12 @@ One small server the instructor runs. It does three jobs:
 Two ways, both in the instructor guide
 [../docs/RELEASE_GUIDE.md](../docs/RELEASE_GUIDE.md):
 
-- **On your own laptop** (§3, Option A): four variables in one terminal
+- **On your own laptop** (Option A): four variables in one terminal
   window, then
   ```bash
   uv run uvicorn proxy.dlc_proxy:app --host 0.0.0.0 --port 8321
   ```
-- **On Carolina CloudApps / any OpenShift cluster** (§4, Option B): the
+- **On Carolina CloudApps / any OpenShift cluster** (Option B): the
   console builds `Dockerfile` in this folder straight from your GitHub
   fork, the three variables live in one Secret, the ledger on a 1 GiB
   volume mounted at `/data`, and students get an HTTPS URL that works from
